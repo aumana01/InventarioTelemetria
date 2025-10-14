@@ -36,5 +36,13 @@ table td {
   /* Expandir tabla al ancho completo en impresión */
   table {
     width: 100% !important;
+    font-size: 0.75rem;
+    table-layout: fixed;
+  }
+
+  table th,
+  table td {
+    word-wrap: break-word;
+    white-space: normal;
   }
 }

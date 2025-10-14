@@ -32,7 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
    * la URL raw correspondiente.
    */
   const REMOTE_DATA_URL =
-    'https://github.com/aumana01/InventarioTelemetria/blob/fcedf208e2dfe05032b0ac40f627f0493d05d125/data.txt';
+    'https://raw.githubusercontent.com/aumana01/InventarioTelemetria/8f9d755dfdd44e1007354881ef0b7d9ecc107bed/data.txt';
 
   // Estado de la aplicación
   let items = [];
@@ -128,6 +128,22 @@ document.addEventListener('DOMContentLoaded', () => {
     // respaldo vacíos. LocalStorage no se usa para inicializar la lista
     // de ítems para evitar conservar categorías antiguas o datos
     // inconsistentes.
+    // 0. intentar cargar datos guardados en localStorage. Esto permite
+    // conservar las ediciones realizadas entre recargas sin necesidad de
+    // reescribir el archivo remoto. Si existe un arreglo válido en
+    // localStorage bajo la clave "items", se utiliza directamente.
+    try {
+      const stored = localStorage.getItem('items');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Error al leer ítems desde localStorage:', e);
+    }
+
     // 1. intentar obtener datos desde la ruta remota
     try {
       const remoteRes = await fetch(REMOTE_DATA_URL);
@@ -215,6 +231,46 @@ document.addEventListener('DOMContentLoaded', () => {
       datOpt.value = cat;
       categoryList.appendChild(datOpt);
     });
+  }
+
+  /**
+   * Ordena los ítems según una columna específica y dirección. Después de
+   * ordenar actualiza la tabla. Soporta columnas numéricas, de fecha y
+   * de texto. Los campos de costo y cantidad se tratan como números,
+   * fechas se parsean con Date y el resto como cadenas para orden
+   * lexicográfico.
+   *
+   * @param {string} column - propiedad del objeto de ítem a ordenar
+   * @param {boolean} ascending - true para orden ascendente, false para descendente
+   */
+  function sortItems(column, ascending = true) {
+    items.sort((a, b) => {
+      let valA = a[column];
+      let valB = b[column];
+      // manejar null o undefined
+      if (valA === undefined || valA === null) valA = '';
+      if (valB === undefined || valB === null) valB = '';
+      // convertir a tipo apropiado
+      // fechas
+      if (column === 'fechaIngreso' || column === 'fechaModificacion') {
+        valA = new Date(valA);
+        valB = new Date(valB);
+      } else if (typeof valA === 'number' && typeof valB === 'number') {
+        // números ya están como number
+      } else if (!isNaN(parseFloat(valA)) && !isNaN(parseFloat(valB))) {
+        // tratar cadenas numéricas
+        valA = parseFloat(valA);
+        valB = parseFloat(valB);
+      } else {
+        // convertir a cadena para comparaciones
+        valA = valA.toString().toLowerCase();
+        valB = valB.toString().toLowerCase();
+      }
+      if (valA < valB) return ascending ? -1 : 1;
+      if (valA > valB) return ascending ? 1 : -1;
+      return 0;
+    });
+    updateTable();
   }
 
   /**
@@ -593,6 +649,20 @@ document.addEventListener('DOMContentLoaded', () => {
     if (fileInput) {
       fileInput.addEventListener('change', handleDataFileSelected);
     }
+
+    // Listeners para ordenar columnas
+    document.querySelectorAll('.sort-asc').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const col = btn.getAttribute('data-col');
+        sortItems(col, true);
+      });
+    });
+    document.querySelectorAll('.sort-desc').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const col = btn.getAttribute('data-col');
+        sortItems(col, false);
+      });
+    });
   }
 
   /**
