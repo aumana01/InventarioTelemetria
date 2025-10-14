@@ -24,6 +24,16 @@ document.addEventListener('DOMContentLoaded', () => {
     'Jesús Sibaja Vargas'
   ];
 
+  /**
+   * Ruta remota del archivo de datos. Este enlace apunta al contenido
+   * "raw" de un archivo en GitHub. La ruta debe ser pública y
+   * accesible para que el navegador pueda obtenerla mediante fetch.
+   * Si deseas utilizar otro archivo remoto, modifica esta constante con
+   * la URL raw correspondiente.
+   */
+  const REMOTE_DATA_URL =
+    'https://raw.githubusercontent.com/aumana01/InventarioTelemetria/8f9d755dfdd44e1007354881ef0b7d9ecc107bed/data.txt';
+
   // Estado de la aplicación
   let items = [];
   let responsables = [];
@@ -112,23 +122,41 @@ document.addEventListener('DOMContentLoaded', () => {
    * @returns {Promise<object[]>} Promesa que resuelve con el arreglo de ítems
    */
   async function loadItems() {
-    // Siempre intentamos cargar desde el archivo de datos. Si esto falla,
-    // se utilizarán datos de respaldo vacíos. LocalStorage ya no se usa
-    // para inicializar la lista de ítems para evitar conservar categorías
-    // antiguas o datos inconsistentes.
+    // Siempre intentamos cargar desde el archivo de datos remoto. Si esto
+    // falla, intentamos cargar un archivo local (data.txt) dentro de la
+    // carpeta de la aplicación. Si ambos fallan se devolverán datos de
+    // respaldo vacíos. LocalStorage no se usa para inicializar la lista
+    // de ítems para evitar conservar categorías antiguas o datos
+    // inconsistentes.
+    // 1. intentar obtener datos desde la ruta remota
     try {
-      const response = await fetch('data.txt');
-      if (response.ok) {
-        const text = await response.text();
+      const remoteRes = await fetch(REMOTE_DATA_URL);
+      if (remoteRes.ok) {
+        const txt = await remoteRes.text();
+        const parsedRemote = JSON.parse(txt);
+        if (Array.isArray(parsedRemote)) {
+          return parsedRemote;
+        }
+      } else {
+        console.warn('No se pudo cargar archivo remoto:', remoteRes.statusText);
+      }
+    } catch (e) {
+      console.warn('Error al cargar archivo remoto:', e);
+    }
+    // 2. intentar cargar data.txt local (para cuando se ejecute desde servidor local)
+    try {
+      const localRes = await fetch('data.txt');
+      if (localRes.ok) {
+        const text = await localRes.text();
         const parsed = JSON.parse(text);
         if (Array.isArray(parsed)) {
           return parsed;
         }
       } else {
-        console.warn('No se pudo cargar data.txt:', response.statusText);
+        console.warn('No se pudo cargar data.txt local:', localRes.statusText);
       }
     } catch (e) {
-      console.warn('Error al cargar data.txt:', e);
+      console.warn('Error al cargar data.txt local:', e);
     }
     // Respaldo: devolver arreglo vacío
     console.warn('Utilizando datos de respaldo vacíos.');
