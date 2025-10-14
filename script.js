@@ -32,7 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
    * la URL raw correspondiente.
    */
   const REMOTE_DATA_URL =
-    'https://raw.githubusercontent.com/aumana01/InventarioTelemetria/8f9d755dfdd44e1007354881ef0b7d9ecc107bed/data.txt';
+    'https://github.com/aumana01/InventarioTelemetria/blob/fcedf208e2dfe05032b0ac40f627f0493d05d125/data.txt';
 
   // Estado de la aplicación
   let items = [];
