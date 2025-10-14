@@ -1,0 +1,40 @@
+/* Estilos personalizados para el sistema de inventario */
+
+body {
+  background-color: #f8f9fa;
+}
+
+table th,
+table td {
+  vertical-align: middle;
+}
+
+/* Ajustar iconos de acciones para que no sean demasiado grandes */
+.action-btn {
+  padding: 0.25rem 0.5rem;
+  margin-right: 0.25rem;
+}
+
+/* Previsualización de imágenes en la tabla */
+.img-thumbnail {
+  max-width: 60px;
+  height: auto;
+}
+
+/* Ocultar elementos no necesarios al imprimir */
+@media print {
+  header,
+  #addItemBtn,
+  #addResponsableBtn,
+  #printBtn,
+  .row.g-3,
+  .modal,
+  .modal-backdrop,
+  .btn {
+    display: none !important;
+  }
+  /* Expandir tabla al ancho completo en impresión */
+  table {
+    width: 100% !important;
+  }
+}
