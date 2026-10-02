@@ -1,0 +1,57 @@
+name: Seguimiento Caudalimetros CI
+
+on:
+  push:
+    paths:
+      - "seguimiento_caudalimetros/**"
+      - ".github/workflows/seguimiento_caudalimetros.yml"
+  pull_request:
+    paths:
+      - "seguimiento_caudalimetros/**"
+      - ".github/workflows/seguimiento_caudalimetros.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: seguimiento_caudalimetros
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: seguimiento_caudalimetros/requirements.txt
+
+      - name: Install ODBC runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unixodbc-dev
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile Python
+        run: python -m compileall app.py src tests
+
+      - name: Run unit tests
+        run: PYTHONPATH=. pytest -q
+
+      - name: Start Streamlit in demo mode
+        env:
+          APP_DEMO_MODE: "true"
+        run: |
+          streamlit run app.py --server.headless=true --server.port=8501 > /tmp/streamlit.log 2>&1 &
+          APP_PID=$!
+          trap "kill $APP_PID" EXIT
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8501/_stcore/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/streamlit.log
+          exit 1
