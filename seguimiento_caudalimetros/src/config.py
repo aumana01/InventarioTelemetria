@@ -58,7 +58,7 @@ class Settings:
             sql_username=str(_secret("sql", "username", "SQL_USERNAME", "")),
             sql_password=str(_secret("sql", "password", "SQL_PASSWORD", "")),
             sql_driver=str(
-                _secret("sql", "driver", "SQL_DRIVER", "ODBC Driver 18 for SQL Server")
+                _secret("sql", "driver", "SQL_DRIVER", "ODBC Driver 13 for SQL Server")
             ),
             sql_schema=str(_secret("sql", "schema", "SQL_SCHEMA", "AYA")),
             sql_table=str(
