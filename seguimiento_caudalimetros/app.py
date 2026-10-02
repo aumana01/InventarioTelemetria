@@ -20,7 +20,7 @@ from src.core import (
 from src.graph_renderer import render_html_graph
 from src.sharepoint_repository import SharePointListRepository
 from src.sql_repository import SqlMeterRepository
-from src.supabase_repository import SupabaseReviewRepository
+from src.supabase_repository import SupabaseMeterRepository, SupabaseReviewRepository
 from src.ui import load_css, readonly_snapshot, review_summary, status_badge
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -100,11 +100,28 @@ def demo_meters() -> pd.DataFrame:
 def load_meters(current_settings: Settings) -> pd.DataFrame:
     if current_settings.demo_mode:
         return demo_meters()
-    if not current_settings.sql_configured:
-        raise RuntimeError(
-            "No hay credenciales SQL configuradas. Configure secrets.toml o active APP_DEMO_MODE=true."
-        )
-    return SqlMeterRepository(current_settings).load_meters()
+
+    source = current_settings.meter_data_source
+    if source == "supabase":
+        if not current_settings.supabase_configured:
+            raise RuntimeError(
+                "La fuente de caudalímetros es Supabase, pero Supabase no está configurado."
+            )
+        return SupabaseMeterRepository(current_settings).load_meters()
+
+    if source == "sql":
+        if not current_settings.sql_configured:
+            raise RuntimeError(
+                "La fuente de caudalímetros es SQL, pero no hay credenciales SQL configuradas."
+            )
+        return SqlMeterRepository(current_settings).load_meters()
+
+    raise RuntimeError(f"Fuente de datos no soportada: {source}")
+
+
+@st.cache_resource
+def get_supabase_meter_repo(current_settings: Settings) -> SupabaseMeterRepository:
+    return SupabaseMeterRepository(current_settings)
 
 
 @st.cache_resource
@@ -218,15 +235,27 @@ def render_graph_for_review(
 
 
 try:
-    with st.spinner("Cargando puntos de caudalímetros..."):
+    with st.spinner("Cargando inventario de caudalímetros..."):
         meters = load_meters(settings)
 except Exception as exc:
-    st.error("No fue posible cargar la geodatabase de caudalímetros.")
+    st.error("No fue posible cargar el inventario de caudalímetros.")
     st.exception(exc)
+    if settings.meter_data_source == "supabase":
+        st.info(
+            "Verifique que haya ejecutado supabase_schema.sql y que la tabla "
+            f"public.{settings.supabase_meters_table} haya sido alimentada con "
+            "sincronizar_caudalimetros.py desde una computadora dentro de la red AyA."
+        )
     st.stop()
 
 if meters.empty:
-    st.warning("La consulta no devolvió caudalímetros con geometría.")
+    if settings.meter_data_source == "supabase":
+        st.warning(
+            "Supabase todavía no contiene caudalímetros. Ejecute "
+            "sincronizar_caudalimetros.py desde una computadora con acceso al SQL de AyA."
+        )
+    else:
+        st.warning("La consulta SQL no devolvió caudalímetros con geometría.")
     st.stop()
 
 key_column = determine_key_column(meters.columns, settings.sql_key_field)
@@ -235,6 +264,10 @@ meters = meters.reset_index(drop=True)
 st.sidebar.title("Seguimiento de Caudalímetros")
 if settings.demo_mode:
     st.sidebar.warning("Modo demostración activo.")
+else:
+    st.sidebar.info(
+        f"Fuente de inventario: {settings.meter_data_source.upper()}"
+    )
 
 page = st.sidebar.radio(
     "Vista",
@@ -250,16 +283,17 @@ selected_row = meters.loc[selected_index]
 equipment_key = str(selected_row.get(key_column))
 snapshot = snapshot_from_row(selected_row.to_dict())
 
-st.sidebar.caption(f"Clave SQL utilizada: {key_column}")
-if st.sidebar.button("Actualizar datos SQL"):
+st.sidebar.caption(f"Clave utilizada: {key_column}")
+if st.sidebar.button("Actualizar datos"):
     load_meters.clear()
     st.rerun()
 
 
 st.title("Control de revisión de caudalímetros")
 st.caption(
-    "Los atributos provenientes de la geodatabase son únicamente de lectura. "
-    "Las revisiones y su historial se almacenan separadamente en Supabase."
+    "Los atributos del inventario provienen de la geodatabase y son únicamente de lectura. "
+    "En Streamlit Cloud se consulta la copia operacional sincronizada en Supabase; "
+    "las revisiones y su historial se almacenan separadamente."
 )
 
 
@@ -562,8 +596,11 @@ else:
     st.write(
         "Esta vista prueba cada dependencia por separado. No modifica la geodatabase ni las revisiones."
     )
+    st.caption(
+        f"Fuente activa para el inventario: {settings.meter_data_source.upper()}"
+    )
 
-    sql_col, supa_col, sp_col = st.columns(3)
+    sql_col, inv_col, rev_col, sp_col = st.columns(4)
 
     with sql_col:
         st.markdown("#### SQL Server / Geodatabase")
@@ -574,17 +611,26 @@ else:
         elif st.button("Probar SQL Server", use_container_width=True):
             ok, message = SqlMeterRepository(settings).ping()
             status_badge(message, "success" if ok else "error")
+        st.caption("Normalmente se prueba dentro de la red AyA.")
 
-    with supa_col:
-        st.markdown("#### Supabase")
+    with inv_col:
+        st.markdown("#### Supabase · inventario")
         if not settings.supabase_configured:
             status_badge("No configurado", "warning")
-        elif st.button("Probar Supabase", use_container_width=True):
+        elif st.button("Probar inventario", use_container_width=True):
+            ok, message = get_supabase_meter_repo(settings).ping()
+            status_badge(message, "success" if ok else "error")
+
+    with rev_col:
+        st.markdown("#### Supabase · revisiones")
+        if not settings.supabase_configured:
+            status_badge("No configurado", "warning")
+        elif st.button("Probar revisiones", use_container_width=True):
             ok, message = get_supabase_repo(settings).ping()
             status_badge(message, "success" if ok else "error")
 
     with sp_col:
-        st.markdown("#### Microsoft List (opcional)")
+        st.markdown("#### Microsoft List")
         if not settings.sharepoint_configured:
             status_badge("Integración REST no configurada", "info")
         elif st.button("Probar Microsoft List", use_container_width=True):
@@ -595,8 +641,13 @@ else:
     st.dataframe(
         pd.DataFrame(
             [
+                {"Componente": "Fuente activa de inventario", "Configurado": settings.meter_data_source},
                 {"Componente": "SQL Server", "Configurado": settings.sql_configured},
                 {"Componente": "Supabase", "Configurado": settings.supabase_configured},
+                {
+                    "Componente": "Tabla inventario Supabase",
+                    "Configurado": settings.supabase_meters_table,
+                },
                 {
                     "Componente": "Microsoft List / SharePoint REST",
                     "Configurado": settings.sharepoint_configured,
