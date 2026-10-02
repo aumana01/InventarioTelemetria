@@ -48,6 +48,7 @@ class Settings:
     ms_client_secret: str
 
     demo_mode: bool
+    app_password: str
 
     @classmethod
     def load(cls) -> "Settings":
@@ -100,6 +101,7 @@ class Settings:
             demo_mode=_as_bool(
                 _secret("app", "demo_mode", "APP_DEMO_MODE", "false"), default=False
             ),
+            app_password=str(_secret("app", "password", "APP_PASSWORD", "")),
         )
 
     @property
