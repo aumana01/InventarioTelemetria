@@ -25,6 +25,15 @@ def _secret(section: str, key: str, env_name: str, default: Any = None) -> Any:
     return default
 
 
+def _data_source(value: Any) -> str:
+    source = str(value or "supabase").strip().lower()
+    if source not in {"supabase", "sql", "auto"}:
+        raise ValueError(
+            "app.data_source debe ser 'supabase', 'sql' o 'auto'."
+        )
+    return source
+
+
 @dataclass(frozen=True)
 class Settings:
     sql_server: str
@@ -39,6 +48,7 @@ class Settings:
     supabase_url: str
     supabase_key: str
     supabase_table: str
+    supabase_meters_table: str
     supabase_bucket: str
 
     sharepoint_site_url: str
@@ -48,6 +58,7 @@ class Settings:
     ms_client_secret: str
 
     demo_mode: bool
+    data_source: str
     app_password: str
 
     @classmethod
@@ -73,6 +84,14 @@ class Settings:
             ),
             supabase_table=str(
                 _secret("supabase", "table", "SUPABASE_TABLE", "caudalimetro_revisiones")
+            ),
+            supabase_meters_table=str(
+                _secret(
+                    "supabase",
+                    "meters_table",
+                    "SUPABASE_METERS_TABLE",
+                    "caudalimetros",
+                )
             ),
             supabase_bucket=str(
                 _secret("supabase", "bucket", "SUPABASE_BUCKET", "caudalimetros-graficos")
@@ -101,6 +120,9 @@ class Settings:
             demo_mode=_as_bool(
                 _secret("app", "demo_mode", "APP_DEMO_MODE", "false"), default=False
             ),
+            data_source=_data_source(
+                _secret("app", "data_source", "APP_DATA_SOURCE", "supabase")
+            ),
             app_password=str(_secret("app", "password", "APP_PASSWORD", "")),
         )
 
@@ -111,6 +133,14 @@ class Settings:
     @property
     def supabase_configured(self) -> bool:
         return bool(self.supabase_url and self.supabase_key)
+
+    @property
+    def meter_data_source(self) -> str:
+        if self.data_source == "auto":
+            if self.supabase_configured:
+                return "supabase"
+            return "sql"
+        return self.data_source
 
     @property
     def sharepoint_configured(self) -> bool:

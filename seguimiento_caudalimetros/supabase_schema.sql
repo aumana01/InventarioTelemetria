@@ -1,5 +1,22 @@
 create extension if not exists pgcrypto;
 
+-- Copia operacional del inventario de caudalímetros.
+-- Se alimenta desde la red AyA con sincronizar_caudalimetros.py.
+create table if not exists public.caudalimetros (
+    equipment_key text primary key,
+    sql_key_field text not null,
+    attributes jsonb not null default '{}'::jsonb,
+    longitude double precision,
+    latitude double precision,
+    x_crtm05 double precision,
+    y_crtm05 double precision,
+    srid_original integer,
+    synced_at timestamptz not null default now()
+);
+
+create index if not exists idx_caudalimetros_synced_at
+    on public.caudalimetros (synced_at desc);
+
 create table if not exists public.caudalimetro_revisiones (
     id uuid primary key default gen_random_uuid(),
     reviewed_at timestamptz not null default now(),
