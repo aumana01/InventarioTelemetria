@@ -2,160 +2,227 @@
 
 Aplicación Streamlit para control técnico e historial de caudalímetros del AyA.
 
+## Arquitectura actual
+
+La aplicación soporta dos fuentes para el inventario de caudalímetros:
+
+- **Supabase**: recomendada para Streamlit Community Cloud.
+- **SQL Server**: para ejecución dentro de la red AyA.
+
+En Streamlit Cloud ya no es necesario instalar el ODBC de SQL Server ni exponer el servidor institucional.
+
+```text
+SQL Server AyA
+AYA.MSG_Medidores_de_Caudal
+        |
+        |  sincronizar_caudalimetros.py
+        |  (se ejecuta dentro de la red AyA)
+        v
+Supabase
+  ├── caudalimetros
+  ├── caudalimetro_revisiones
+  └── caudalimetros-graficos
+        |
+        v
+Streamlit Cloud
+```
+
+La geodatabase continúa siendo la fuente maestra. Supabase mantiene una copia operacional de solo lectura para que el aplicativo publicado pueda funcionar fuera de la red institucional.
+
 ## Funcionalidad
 
-- Lee todos los atributos de `AYA.MSG_Medidores_de_Caudal` desde SQL Server, excluyendo `SHAPE`.
+- Lee todos los atributos de `AYA.MSG_Medidores_de_Caudal`, excluyendo `SHAPE`.
 - Obtiene `SHAPE.STX` / `SHAPE.STY` y transforma CRTM05 EPSG:5367 a WGS84 EPSG:4326.
+- Sincroniza el inventario a `public.caudalimetros` mediante UPSERT.
 - Presenta mapa y atributos de geodatabase en modo solo lectura.
 - Registra revisiones históricas en Supabase sin modificar la geodatabase.
 - Controla rectificación simultánea, equipo utilizado, condición ultrasónica, circunferencia, espesor, distancia de transductores, calidad de medición, último mantenimiento y fallas.
 - Permite cargar un HTML comparativo y almacenarlo en un bucket privado de Supabase.
 - Muestra el HTML directamente dentro de la ficha mediante un iframe `sandbox`.
-- Incluye una integración opcional con Microsoft List mediante SharePoint REST y una aplicación Microsoft Entra. No depende del conector de SharePoint de ChatGPT.
-- Incluye vista de diagnóstico para SQL Server, Supabase y la integración opcional con Microsoft List.
+- Incluye integración opcional con Microsoft List mediante SharePoint REST y Microsoft Entra. No depende del conector de SharePoint de ChatGPT.
+- Incluye diagnóstico separado para SQL, inventario Supabase, revisiones Supabase y Microsoft List.
 
-## Arquitectura
+## 1. Preparar Supabase
 
-```
-Geodatabase SQL Server (solo lectura)
-            |
-            v
-        Streamlit
-       /    |     \
-      /     |      \
-  mapa   formulario  ficha
-            |
-            v
-       Supabase
-  PostgreSQL + Storage
-
-Microsoft List
-(opcional por REST)
-```
-
-GitHub contiene **el código fuente**, pero no sustituye la conectividad con el SQL Server interno. El servidor que ejecute Streamlit debe poder resolver y alcanzar el host SQL institucional.
-
-## 1. Supabase
-
-Abra el SQL Editor del proyecto Supabase y ejecute:
+Abra **Supabase → SQL Editor** y ejecute el archivo:
 
 `supabase_schema.sql`
 
 Esto crea:
 
-- tabla `public.caudalimetro_revisiones`;
-- índice por caudalímetro y fecha;
+- `public.caudalimetros`: copia operacional del inventario;
+- `public.caudalimetro_revisiones`: historial de revisiones;
+- índice de sincronización;
+- índice de revisiones por equipo y fecha;
 - bucket privado `caudalimetros-graficos`.
+
+Si ya había ejecutado una versión anterior de `supabase_schema.sql`, puede ejecutar nuevamente el archivo completo. Las instrucciones usan `create table if not exists`.
 
 La aplicación usa una `service_role_key` únicamente del lado servidor. No debe colocarse en código fuente, HTML o JavaScript.
 
-## 2. Configuración
+## 2. Secrets para Streamlit Cloud
 
-Copie:
+En **Streamlit Community Cloud → App → Settings → Secrets** use, como mínimo:
 
-`.streamlit/secrets.example.toml`
+```toml
+[app]
+demo_mode = false
+data_source = "supabase"
+password = ""
 
-a:
+[supabase]
+url = "https://TU-PROYECTO.supabase.co"
+service_role_key = "TU_SERVICE_ROLE_KEY"
+table = "caudalimetro_revisiones"
+meters_table = "caudalimetros"
+bucket = "caudalimetros-graficos"
+```
 
-`.streamlit/secrets.toml`
+Puede mantener también la sección `[sql]`, pero **Streamlit Cloud no la utiliza cuando `data_source = "supabase"`**.
 
-y complete los valores reales.
+## 3. Sincronizar SQL AyA → Supabase
 
-La contraseña SQL que se haya utilizado en pruebas anteriores **no está incluida** en este repositorio.
+La primera sincronización debe ejecutarse desde una computadora que:
 
-### SQL
+1. esté dentro de la red AyA o tenga acceso válido al servidor SQL;
+2. tenga instalado el ODBC utilizado por SQL Server;
+3. tenga Python y las dependencias del proyecto;
+4. tenga configuradas tanto las credenciales SQL como las de Supabase.
 
-Configure el driver ODBC instalado en el servidor. En el entorno AyA actualmente puede utilizarse, por ejemplo:
+En el `.streamlit/secrets.toml` de esa computadora:
 
-`ODBC Driver 13 for SQL Server`
+```toml
+[app]
+demo_mode = false
+data_source = "sql"
+password = ""
 
-La clave de identificación del caudalímetro se intenta tomar de `Código_Caudalimetro`; si esa columna no existe, el aplicativo busca claves comunes como `OBJECTID`, `GlobalID` o `ID`.
+[sql]
+server = "SERVIDOR_SQL_INTERNO"
+database = "GIS_RME"
+username = "USUARIO_SQL"
+password = "CONTRASENA_SQL"
+driver = "ODBC Driver 13 for SQL Server"
+schema = "AYA"
+table = "MSG_Medidores_de_Caudal"
+key_field = "Código_Caudalimetro"
 
-## 3. Microsoft List: opcional
+[supabase]
+url = "https://TU-PROYECTO.supabase.co"
+service_role_key = "TU_SERVICE_ROLE_KEY"
+table = "caudalimetro_revisiones"
+meters_table = "caudalimetros"
+bucket = "caudalimetros-graficos"
+```
 
-El aplicativo funciona completamente sin Microsoft List mediante carga manual del HTML.
+Luego ejecute:
 
-Si posteriormente se desea consultar la lista:
+```cmd
+cd seguimiento_caudalimetros
+python sincronizar_caudalimetros.py
+```
 
-`Seguimiento de Detección de Fugas GAM`
+El proceso:
 
-se debe registrar una aplicación en Microsoft Entra ID y configurar:
+1. consulta la geodatabase;
+2. transforma CRTM05 a WGS84;
+3. detecta la clave del caudalímetro;
+4. guarda todos los atributos en JSON;
+5. ejecuta UPSERT en `public.caudalimetros`.
+
+La sincronización no modifica SQL Server y no elimina registros de Supabase que hayan desaparecido de SQL.
+
+Después de sincronizar, en Streamlit Cloud pulse **Actualizar datos**.
+
+## 4. Ejecución local directa contra SQL
+
+Dentro de la red AyA puede hacer que Streamlit consulte directamente SQL:
+
+```toml
+[app]
+data_source = "sql"
+demo_mode = false
+```
+
+Ejecute:
+
+```cmd
+streamlit run app.py
+```
+
+En este modo sí se requiere el driver ODBC configurado.
+
+## 5. Valores de data_source
+
+```toml
+data_source = "supabase"
+```
+
+Usa `public.caudalimetros`. Es la opción recomendada para Streamlit Cloud.
+
+```toml
+data_source = "sql"
+```
+
+Consulta directamente `AYA.MSG_Medidores_de_Caudal`. Úselo dentro de la red AyA.
+
+```toml
+data_source = "auto"
+```
+
+Usa Supabase si está configurado y, en caso contrario, SQL.
+
+## 6. Microsoft List: opcional
+
+El aplicativo funciona sin Microsoft List mediante carga manual del HTML.
+
+Si posteriormente se desea consultar la lista `Seguimiento de Detección de Fugas GAM`, se debe registrar una aplicación en Microsoft Entra ID y configurar:
 
 - `tenant_id`
 - `client_id`
 - `client_secret`
 
-con permisos autorizados sobre el sitio SharePoint correspondiente.
+La aplicación consulta los `AttachmentFiles`, identifica un archivo `.html` o `.htm` y lo muestra en la ficha.
 
-La aplicación consulta el ID del elemento y sus `AttachmentFiles`, busca un archivo `.html` o `.htm` y lo muestra en la ficha. Para este origen se guarda la referencia del ID, no una copia adicional del archivo en Supabase.
-
-## 4. Ejecución local
+## 7. Instalación local
 
 Desde esta carpeta:
 
-```bash
+```cmd
 python -m venv .venv
 .venv\Scripts\activate
 python -m pip install -r requirements.txt
 streamlit run app.py
 ```
 
-En Linux:
+## 8. Modo demo
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-streamlit run app.py
-```
-
-## 5. Modo demo
-
-Permite probar interfaz, mapa y validaciones sin conexión SQL:
-
-Windows CMD:
+Para probar la interfaz sin SQL ni Supabase:
 
 ```cmd
 set APP_DEMO_MODE=true
 streamlit run app.py
 ```
 
-PowerShell:
-
-```powershell
-$env:APP_DEMO_MODE="true"
-streamlit run app.py
-```
-
-## 6. Despliegue recomendado
-
-Para producción se recomienda ejecutar Streamlit en una VM o servidor dentro de la red AyA que tenga:
-
-1. acceso de red a SQL Server;
-2. Python 3.11+;
-3. el driver ODBC requerido;
-4. acceso HTTPS a Supabase;
-5. secretos configurados fuera de GitHub.
-
-GitHub debe usarse como repositorio de código y control de versiones. Si el SQL Server no es accesible desde Internet, un despliegue estándar en Streamlit Community Cloud no podrá consultarlo directamente sin VPN, túnel o una API intermedia segura.
-
-## 7. Pruebas
+## 9. Pruebas
 
 ```bash
 PYTHONPATH=. pytest -q
 ```
 
-El workflow de GitHub además:
+GitHub Actions:
 
-- compila los módulos Python;
-- ejecuta las pruebas unitarias;
+- compila `app.py`, el sincronizador, módulos y pruebas;
+- ejecuta pruebas unitarias;
 - inicia Streamlit en modo demo;
 - consulta `/_stcore/health`.
 
 ## Seguridad
 
 - No se escriben cambios en la geodatabase.
+- SQL Server no necesita quedar expuesto a Internet.
 - Los secretos quedan fuera del repositorio.
 - Los HTML externos se muestran dentro de un iframe con `sandbox`.
 - El bucket de gráficos es privado.
-- Puede habilitarse una contraseña básica de acceso mediante `[app].password`; para un despliegue institucional se recomienda además protección de red o autenticación corporativa delante de Streamlit.
+- La `service_role_key` permanece únicamente del lado servidor.
+- Puede habilitarse una contraseña básica mediante `[app].password`.
