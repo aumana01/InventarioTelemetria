@@ -378,6 +378,136 @@ def render_meter_map(row: pd.Series, height: int = 500) -> None:
     )
 
 
+def render_review_equipment_map(
+    selected_row: pd.Series,
+    inventory: pd.DataFrame,
+    *,
+    key_column: str,
+    system_column: str | None = None,
+    name_column: str | None = None,
+    height: int = 500,
+) -> None:
+    """Mapa de revisión: equipo activo destacado y caudalímetros vecinos atenuados."""
+    selected_lat = selected_row.get("LATITUD")
+    selected_lon = selected_row.get("LONGITUD")
+    if pd.isna(selected_lat) or pd.isna(selected_lon):
+        st.warning("El punto seleccionado no tiene coordenadas WGS84 utilizables.")
+        return
+
+    selected_lat = float(selected_lat)
+    selected_lon = float(selected_lon)
+    selected_key = str(selected_row.get(key_column, ""))
+    selected_label = meter_label(
+        selected_row,
+        key_column,
+        system_column,
+        name_column,
+    )
+
+    fmap = folium.Map(
+        location=[selected_lat, selected_lon],
+        zoom_start=18,
+        tiles=None,
+        control_scale=True,
+        prefer_canvas=True,
+    )
+
+    folium.TileLayer(
+        tiles=ESRI_WORLD_IMAGERY,
+        attr="Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+        name="Esri World Imagery",
+        overlay=False,
+        control=False,
+        max_zoom=20,
+    ).add_to(fmap)
+
+    for _, meter in inventory.iterrows():
+        meter_lat = meter.get("LATITUD")
+        meter_lon = meter.get("LONGITUD")
+        if pd.isna(meter_lat) or pd.isna(meter_lon):
+            continue
+
+        meter_key = str(meter.get(key_column, ""))
+        if meter_key == selected_key:
+            continue
+
+        reference_label = meter_label(
+            meter,
+            key_column,
+            system_column,
+            name_column,
+        )
+        folium.CircleMarker(
+            location=[float(meter_lat), float(meter_lon)],
+            radius=5,
+            color="#F59E0B",
+            weight=1.5,
+            opacity=0.58,
+            fill=True,
+            fill_color="#F59E0B",
+            fill_opacity=0.28,
+            tooltip=folium.Tooltip(
+                f"Referencia · {html.escape(reference_label)}",
+                permanent=False,
+                sticky=True,
+                direction="top",
+                style=(
+                    "background-color: rgba(255,248,235,0.96);"
+                    "color: #7c4a03;"
+                    "font-size: 11px;"
+                    "font-weight: 600;"
+                    "padding: 3px 7px;"
+                    "border: 1px solid rgba(245,158,11,0.65);"
+                    "border-radius: 5px;"
+                    "white-space: nowrap;"
+                ),
+            ),
+        ).add_to(fmap)
+
+    folium.CircleMarker(
+        location=[selected_lat, selected_lon],
+        radius=8,
+        color="#FFFFFF",
+        weight=3,
+        opacity=1.0,
+        fill=True,
+        fill_color="#007AFF",
+        fill_opacity=1.0,
+        tooltip=folium.Tooltip(
+            html.escape(selected_label),
+            permanent=True,
+            sticky=False,
+            direction="top",
+            offset=(0, -5),
+            style=(
+                "background-color: rgba(20,28,38,0.92);"
+                "color: #ffffff;"
+                "font-size: 12px;"
+                "font-weight: 700;"
+                "line-height: 1.15;"
+                "padding: 4px 8px;"
+                "border: 1px solid rgba(255,255,255,0.92);"
+                "border-radius: 6px;"
+                "box-shadow: 0 2px 6px rgba(0,0,0,0.35);"
+                "white-space: nowrap;"
+            ),
+        ),
+    ).add_to(fmap)
+
+    st_folium(
+        fmap,
+        width=None,
+        height=height,
+        use_container_width=True,
+        returned_objects=[],
+        key=f"review-map-{selected_key}-{selected_lat:.6f}-{selected_lon:.6f}",
+    )
+    st.caption(
+        f"{selected_label} · WGS84: {selected_lat:.6f}, {selected_lon:.6f} · "
+        "Azul: equipo activo · Ámbar transparente: caudalímetros de referencia."
+    )
+
+
 def render_measurement_point_map(
     latitude: float,
     longitude: float,
@@ -1804,7 +1934,14 @@ if page == "Revisión de equipo":
     top_map, top_data = st.columns([0.48, 0.52], gap="large")
     with top_map:
         st.markdown("#### Ubicación del equipo")
-        render_meter_map(selected_row, height=390)
+        render_review_equipment_map(
+            selected_row,
+            meters,
+            key_column=key_column,
+            system_column=system_column,
+            name_column=name_column,
+            height=390,
+        )
 
     with top_data:
         st.markdown("#### Atributos de la geodatabase")
