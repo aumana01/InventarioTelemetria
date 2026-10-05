@@ -631,65 +631,6 @@ def render_maintenance_section(
     }
 
 
-def render_data_checks(
-    prefix: str,
-    current: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    current = current or {}
-    st.markdown("#### Disponibilidad y visualización de datos")
-    st.caption(
-        "Estos controles forman parte del seguimiento de reparación/mantenimiento "
-        "y se registran con Sí/No/Sin verificar + fecha, sin semáforo."
-    )
-
-    fields = [
-        (
-            "data_perspective_visible",
-            "data_perspective_check_date",
-            "¿Se visualiza en Perspective?",
-            "perspective",
-        ),
-        (
-            "data_vision_cco_visible",
-            "data_vision_cco_check_date",
-            "¿Se visualiza en Vision Client de CCO (PC)?",
-            "vision-cco",
-        ),
-        (
-            "data_vision_scada_vr2_visible",
-            "data_vision_scada_vr2_check_date",
-            "¿Se visualiza en Vision Client de SCADA vr2 (PC)?",
-            "vision-vr2",
-        ),
-        (
-            "data_vision_reports_downloadable",
-            "data_vision_reports_check_date",
-            "¿Se pueden descargar datos en el módulo de reportes de Vision Client?",
-            "vision-reports",
-        ),
-    ]
-
-    payload: dict[str, Any] = {}
-    for bool_key, date_key, label, suffix in fields:
-        d1, d2 = st.columns([0.58, 0.42])
-        choice = d1.selectbox(
-            label,
-            options=["Sin verificar", "Sí", "No"],
-            index=_yes_no_index(current.get(bool_key)),
-            key=f"{prefix}-data-{suffix}",
-        )
-        checked_at = d2.date_input(
-            "Fecha",
-            value=_review_date_value(current.get(date_key)),
-            max_value=date.today(),
-            key=f"{prefix}-data-{suffix}-date",
-        )
-        payload[bool_key] = _yes_no_value(choice)
-        payload[date_key] = checked_at.isoformat() if checked_at else None
-
-    return payload
-
-
 def render_repairs_section(
     prefix: str,
     current: dict[str, Any] | None = None,
@@ -706,6 +647,16 @@ def render_repairs_section(
         ("repair_calibration_pending", "Calibración"),
         ("repair_power_pending", "Energía"),
         ("repair_wiring_pending", "Cableado"),
+        ("repair_perspective_pending", "Visualización en Perspective"),
+        ("repair_vision_cco_pending", "Visualización en Vision Client de CCO (PC)"),
+        (
+            "repair_vision_scada_vr2_pending",
+            "Visualización en Vision Client de SCADA vr2 (PC)",
+        ),
+        (
+            "repair_vision_reports_pending",
+            "Descarga de datos en módulo de reportes de Vision Client",
+        ),
         ("repair_temporary_replacement", "Sustitución total temporal del equipo"),
         ("repair_permanent_replacement", "Sustitución total permanente del equipo"),
     ]
@@ -746,7 +697,6 @@ def render_repairs_section(
 
     payload["repair_spare_part_required"] = bool(spare_required)
     payload["repair_spare_part_detail"] = spare_detail.strip() or None
-    payload.update(render_data_checks(prefix, current))
     return payload
 
 
@@ -1030,6 +980,10 @@ def render_review_control_sections(review: dict[str, Any]) -> None:
         ("Calibración", "repair_calibration_pending"),
         ("Energía", "repair_power_pending"),
         ("Cableado", "repair_wiring_pending"),
+        ("Visualización en Perspective", "repair_perspective_pending"),
+        ("Vision Client CCO", "repair_vision_cco_pending"),
+        ("Vision Client SCADA vr2", "repair_vision_scada_vr2_pending"),
+        ("Descarga módulo de reportes", "repair_vision_reports_pending"),
         ("Sustitución temporal", "repair_temporary_replacement"),
         ("Sustitución permanente", "repair_permanent_replacement"),
     ]
@@ -1052,36 +1006,6 @@ def render_review_control_sections(review: dict[str, Any]) -> None:
             "🔴 Requiere repuesto" if spare else "🟢 Sin pendiente",
             "error" if spare else "success",
         )
-
-    st.markdown("#### Disponibilidad y visualización de datos")
-    data_rows = [
-        ("Perspective", "data_perspective_visible", "data_perspective_check_date"),
-        ("Vision Client CCO", "data_vision_cco_visible", "data_vision_cco_check_date"),
-        (
-            "Vision Client SCADA vr2",
-            "data_vision_scada_vr2_visible",
-            "data_vision_scada_vr2_check_date",
-        ),
-        (
-            "Descarga módulo de reportes",
-            "data_vision_reports_downloadable",
-            "data_vision_reports_check_date",
-        ),
-    ]
-    st.dataframe(
-        pd.DataFrame(
-            [
-                {
-                    "Validación": label,
-                    "Estado": _yes_no_choice(review.get(bool_key)),
-                    "Fecha": review.get(date_key) or "—",
-                }
-                for label, bool_key, date_key in data_rows
-            ]
-        ),
-        hide_index=True,
-        width="stretch",
-    )
 
     st.markdown("### Generalidades del equipo")
     general_rows = [
@@ -2170,6 +2094,10 @@ elif page == "Ficha e historial":
         "maintenance_solar_panel_cleaning_date",
         "maintenance_scada_working",
         "maintenance_scada_check_date",
+        "repair_perspective_pending",
+        "repair_vision_cco_pending",
+        "repair_vision_scada_vr2_pending",
+        "repair_vision_reports_pending",
         "last_maintenance_date",
         "graph_source",
         "graph_original_url",
