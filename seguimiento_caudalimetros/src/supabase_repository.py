@@ -182,7 +182,7 @@ class SupabaseReviewRepository:
                 self.delete_html(str(graph_storage_path))
             except Exception as exc:
                 storage_warning = (
-                    "El registro fue eliminado, pero no se pudo limpiar el HTML "
+                    "El registro fue eliminado, pero no se pudo limpiar el archivo gráfico "
                     f"del almacenamiento: {exc}"
                 )
         rows = getattr(result, "data", None) or []
@@ -248,14 +248,47 @@ class SupabaseReviewRepository:
 
 
     def mark_review_graph_pending(self, review_id: str) -> dict[str, Any]:
+        current = (
+            self.client.table(self.table_name)
+            .select("graph_storage_path")
+            .eq("id", str(review_id))
+            .limit(1)
+            .execute()
+        )
+        current_rows = getattr(current, "data", None) or []
+        old_path = (
+            str(current_rows[0].get("graph_storage_path") or "").strip()
+            if current_rows
+            else ""
+        )
+
         result = (
             self.client.table(self.table_name)
-            .update({"graph_storage_path": None})
+            .update(
+                {
+                    "graph_storage_path": None,
+                    "graph_format": "html",
+                }
+            )
             .eq("id", str(review_id))
             .execute()
         )
+
+        if old_path:
+            try:
+                self.delete_html(old_path)
+            except Exception:
+                pass
+
         rows = getattr(result, "data", None) or []
-        return rows[0] if rows else {"graph_storage_path": None}
+        return (
+            rows[0]
+            if rows
+            else {
+                "graph_storage_path": None,
+                "graph_format": "html",
+            }
+        )
 
     def upload_html(self, equipment_key: str, filename: str, content: bytes) -> str:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

@@ -8,7 +8,7 @@ Agente local independiente para importar automáticamente a Supabase los HTML de
 Streamlit -> Supabase <- Agente local -> SharePoint
 ```
 
-La aplicación web únicamente guarda el vínculo. El agente consulta Supabase cada minuto, detecta revisiones pendientes, usa una sesión persistente de Microsoft Edge para leer el HTML real y lo copia al bucket privado de Supabase.
+La aplicación web únicamente guarda el vínculo. El agente consulta Supabase cada minuto, usa una sesión persistente de Microsoft Edge para leer el HTML real y extrae solamente la especificación Plotly (trazas + layout + configuración). Esa información se comprime como JSON gzip y se copia al bucket privado de Supabase; el Plotly.js completo no se almacena con cada gráfico.
 
 No usa Microsoft Entra App Registration, client_id, client_secret, Power Automate ni Microsoft Graph.
 
@@ -64,3 +64,18 @@ El log local se guarda normalmente en:
 ```text
 %LOCALAPPDATA%\AyA\AgenteSharePointCaudalimetros\agent.log
 ```
+
+
+## Optimización de gráficos Plotly
+
+Desde la versión 1.2.0 el agente busca tanto vínculos pendientes como gráficos SharePoint antiguos almacenados en HTML. Cuando encuentra un HTML legado:
+
+1. descarga temporalmente el HTML desde SharePoint;
+2. extrae las llamadas `Plotly.newPlot(...)`;
+3. conserva únicamente `data`, `layout` y `config`;
+4. genera un archivo `.plotly.json.gz`;
+5. lo sube a Supabase;
+6. actualiza `graph_format = plotly_json_gzip`;
+7. elimina del bucket el HTML pesado anterior.
+
+La aplicación Streamlit instala Plotly.js 3.0.1 una sola vez y reconstruye el gráfico desde el archivo compacto.

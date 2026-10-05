@@ -10,3 +10,21 @@
   border-radius: 12px;
   background: white;
 }
+
+.plotly-stack {
+  width: 100%;
+  min-height: 640px;
+}
+
+.plotly-figure {
+  width: 100%;
+  min-height: 360px;
+  border: 1px solid color-mix(in srgb, var(--st-text-color) 16%, transparent);
+  border-radius: 12px;
+  overflow: hidden;
+  background: white;
+}
+
+.plotly-figure + .plotly-figure {
+  margin-top: 12px;
+}

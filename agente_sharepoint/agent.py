@@ -14,6 +14,8 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse, urlunparse
 from uuid import uuid4
 
+from plotly_extract import COMPACT_FORMAT, compact_plotly_html
+
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = APP_DIR / "agent_secrets.toml"
@@ -21,7 +23,7 @@ STATE_DIR = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "AyA" / "Agent
 PROFILE_DIR = STATE_DIR / "edge_profile"
 LOG_PATH = STATE_DIR / "agent.log"
 SINGLETON_PORT = 39571
-AGENT_VERSION = "1.1.0"
+AGENT_VERSION = "1.2.0"
 
 
 @dataclass(frozen=True)
@@ -127,14 +129,26 @@ class Repository:
             .select("*")
             .eq("graph_source", "sharepoint_link")
             .not_.is_("graph_original_url", "null")
-            .is_("graph_storage_path", "null")
             .order("reviewed_at", desc=False)
-            .limit(limit)
+            .limit(max(limit, 1000))
             .execute()
         )
-        return getattr(result, "data", None) or []
+        rows = getattr(result, "data", None) or []
+        pending = [
+            row
+            for row in rows
+            if not row.get("graph_storage_path")
+            or str(row.get("graph_format") or "html") != COMPACT_FORMAT
+        ]
+        return pending[:limit]
 
-    def upload(self, equipment_key: str, filename: str, content: bytes) -> str:
+    def upload(
+        self,
+        equipment_key: str,
+        filename: str,
+        content: bytes,
+        content_type: str,
+    ) -> str:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         path = (
             f"{safe_filename(equipment_key)}/"
@@ -144,24 +158,36 @@ class Repository:
             path=path,
             file=content,
             file_options={
-                "content-type": "text/html; charset=utf-8",
+                "content-type": content_type,
                 "upsert": "false",
             },
         )
         return path
 
-    def mark_synced(self, review_id: str, path: str, filename: str) -> None:
+    def mark_synced(
+        self,
+        review_id: str,
+        path: str,
+        filename: str,
+        graph_format: str,
+    ) -> None:
         (
             self.client.table(self.config.table)
             .update(
                 {
                     "graph_storage_path": path,
+                    "graph_format": graph_format,
                     "sharepoint_file_name": filename,
                 }
             )
             .eq("id", str(review_id))
             .execute()
         )
+
+    def delete_storage(self, path: str | None) -> None:
+        if not str(path or "").strip():
+            return
+        self.client.storage.from_(self.config.bucket).remove([str(path)])
 
     def heartbeat(self, status: str = "active", detail: str | None = None) -> None:
         hostname = socket.gethostname() or "equipo-sin-nombre"
@@ -301,12 +327,48 @@ def process_pending(config: Config, repository: Repository) -> int:
                     continue
                 try:
                     filename, content = fetch_html(page, url)
-                    path = repository.upload(equipment_key, filename, content)
-                    repository.mark_synced(review_id, path, filename)
-                    logging.info(
-                        "Sincronizado | revisión=%s | archivo=%s",
+                    compact = compact_plotly_html(filename, content)
+                    old_path = str(review.get("graph_storage_path") or "").strip() or None
+
+                    path = repository.upload(
+                        equipment_key,
+                        compact.filename,
+                        compact.content,
+                        "application/gzip",
+                    )
+                    repository.mark_synced(
                         review_id,
-                        filename,
+                        path,
+                        compact.filename,
+                        COMPACT_FORMAT,
+                    )
+
+                    if old_path and old_path != path:
+                        try:
+                            repository.delete_storage(old_path)
+                        except Exception:
+                            logging.exception(
+                                "No se pudo eliminar el gráfico anterior %s",
+                                old_path,
+                            )
+
+                    reduction = (
+                        100.0 * (1.0 - compact.compact_size / compact.original_size)
+                        if compact.original_size
+                        else 0.0
+                    )
+                    logging.info(
+                        (
+                            "Sincronizado compacto | revisión=%s | archivo=%s | "
+                            "figuras=%s | original=%s bytes | compacto=%s bytes | "
+                            "reducción=%.1f%%"
+                        ),
+                        review_id,
+                        compact.filename,
+                        compact.figure_count,
+                        compact.original_size,
+                        compact.compact_size,
+                        reduction,
                     )
                     success += 1
                 except Exception:
