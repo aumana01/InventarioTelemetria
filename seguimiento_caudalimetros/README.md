@@ -38,6 +38,9 @@ La geodatabase continúa siendo la fuente maestra. Supabase mantiene una copia o
 - Registra revisiones históricas en Supabase sin modificar la geodatabase.
 - Controla rectificación simultánea, equipo utilizado, condición ultrasónica, circunferencia, espesor, distancia de transductores, calidad de medición, último mantenimiento y fallas.
 - Permite cargar un HTML comparativo y almacenarlo en un bucket privado de Supabase.
+- Permite guardar un vínculo original de Microsoft List / SharePoint y extraer el ID del adjunto cuando el URL contiene `/Attachments/{id}/archivo.html`.
+- El vínculo puede complementarse con una copia HTML de visualización en Supabase para abrir el gráfico directamente dentro de la ficha sin descargarlo al escritorio.
+- Permite registrar un punto WGS84 específico de la medición, independiente de la ubicación del macromedidor.
 - Muestra el HTML directamente dentro de la ficha mediante un iframe `sandbox`.
 - Incluye integración opcional con Microsoft List mediante SharePoint REST y Microsoft Entra. No depende del conector de SharePoint de ChatGPT.
 - Incluye diagnóstico separado para SQL, inventario Supabase, revisiones Supabase y Microsoft List.
@@ -172,9 +175,19 @@ data_source = "auto"
 
 Usa Supabase si está configurado y, en caso contrario, SQL.
 
-## 6. Microsoft List: opcional
+## 6. Microsoft List: vínculo y API opcional
 
-El aplicativo funciona sin Microsoft List mediante carga manual del HTML.
+El aplicativo funciona sin API de Microsoft List. En **Vínculo MS List / SharePoint** puede guardar el URL original del adjunto HTML. Como SharePoint puede exigir autenticación o responder con descarga forzada, el aplicativo no depende de incrustar directamente ese URL en un iframe.
+
+Para garantizar visualización dentro de la ficha, puede adjuntar el mismo archivo HTML como **copia de visualización**. El archivo se conserva en el bucket privado de Supabase y el vínculo original sigue almacenado como referencia oficial.
+
+Antes de utilizar el vínculo o las coordenadas de medición puntual en una instalación existente, ejecute en Supabase SQL Editor:
+
+`migration_20261005_sharepoint_link_location.sql`
+
+Si más adelante se configura Microsoft Entra / SharePoint REST, el aplicativo puede aprovechar el ID extraído del vínculo para recuperar el adjunto por API.
+
+El aplicativo funciona también sin Microsoft List mediante carga manual del HTML.
 
 Si posteriormente se desea consultar la lista `Seguimiento de Detección de Fugas GAM`, se debe registrar una aplicación en Microsoft Entra ID y configurar:
 
