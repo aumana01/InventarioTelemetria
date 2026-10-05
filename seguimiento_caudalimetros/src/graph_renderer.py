@@ -83,3 +83,15 @@ def render_plotly_graph(
         },
         key=key,
     )
+
+
+def render_stored_graph(
+    content: bytes,
+    graph_format: str | None,
+    key: str,
+    height: int = 640,
+) -> None:
+    if str(graph_format or "html") == "plotly_json_gzip":
+        render_plotly_graph(content, key=key, height=height)
+        return
+    render_html_graph(content, key=key, height=height)
