@@ -14,7 +14,6 @@ from streamlit_folium import st_folium
 
 from src.config import Settings
 from src.core import (
-    EQUIPMENT_TYPE_VALUES,
     QUALITY_VALUES,
     RECTIFICATION_VALUES,
     determine_key_column,
@@ -2157,11 +2156,18 @@ elif page == "Ficha e historial":
         "reviewed_at",
         "measurement_quality",
         "equipment_type",
+        "equipment_serial",
+        "transducer_serial",
         "rectification_status",
+        "maintenance_gel_applicable",
         "maintenance_gel_date",
+        "maintenance_transducers_alignment_applicable",
         "maintenance_transducers_alignment_date",
         "maintenance_internal_download_date",
         "maintenance_simultaneous_installation_date",
+        "maintenance_insertion_sensor_cleaning_date",
+        "maintenance_solar_panel_applicable",
+        "maintenance_solar_panel_cleaning_date",
         "maintenance_scada_working",
         "maintenance_scada_check_date",
         "last_maintenance_date",
@@ -2170,7 +2176,6 @@ elif page == "Ficha e historial":
         "measurement_latitude",
         "measurement_longitude",
         "reviewed_by",
-        "failures",
     ]
     existing = [c for c in wanted if c in history.columns]
     st.dataframe(history[existing], hide_index=True, width="stretch")
