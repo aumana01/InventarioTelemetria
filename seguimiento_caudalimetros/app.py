@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import hmac
+import html
 import re
 from datetime import date
 from pathlib import Path
 from typing import Any
 
+import folium
 import pandas as pd
-import pydeck as pdk
 import streamlit as st
+from streamlit_folium import st_folium
 
 from src.config import Settings
 from src.core import (
@@ -247,27 +249,10 @@ def meter_matches_search(
     return bool(compact_query and compact_query in compact_combined)
 
 
-SATELLITE_TILE_URL = (
+ESRI_WORLD_IMAGERY = (
     "https://server.arcgisonline.com/ArcGIS/rest/services/"
     "World_Imagery/MapServer/tile/{z}/{y}/{x}"
 )
-
-
-def satellite_tile_layer() -> pdk.Layer:
-    return pdk.Layer(
-        "TileLayer",
-        data=SATELLITE_TILE_URL,
-        min_zoom=0,
-        max_zoom=19,
-        tile_size=256,
-        render_sub_layers=[
-            {
-                "@@type": "BitmapLayer",
-                "bounds": "@@props.tile.boundingBox",
-                "image": "@@props.data",
-            }
-        ],
-    )
 
 
 def render_satellite_point_map(
@@ -275,95 +260,77 @@ def render_satellite_point_map(
     longitude: float,
     label: str,
     height: int = 500,
-    zoom: float = 18,
+    zoom: int = 18,
 ) -> None:
-    point_df = pd.DataFrame(
-        [
-            {
-                "lat": float(latitude),
-                "lon": float(longitude),
-                "label": str(label or "Punto de medición"),
-            }
-        ]
+    safe_label = html.escape(str(label or "Punto de medición"))
+
+    fmap = folium.Map(
+        location=[float(latitude), float(longitude)],
+        zoom_start=zoom,
+        tiles=None,
+        control_scale=True,
+        prefer_canvas=True,
     )
 
-    marker_layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=point_df,
-        get_position="[lon, lat]",
-        get_radius=8,
-        radius_min_pixels=7,
-        radius_max_pixels=11,
-        get_fill_color=[0, 122, 255, 235],
-        get_line_color=[255, 255, 255, 255],
-        line_width_min_pixels=2,
-        stroked=True,
-        filled=True,
-        pickable=True,
-    )
+    folium.TileLayer(
+        tiles=ESRI_WORLD_IMAGERY,
+        attr="Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+        name="Esri World Imagery",
+        overlay=False,
+        control=False,
+        max_zoom=20,
+    ).add_to(fmap)
 
-    # Dos capas de texto crean un contorno oscuro para que la etiqueta
-    # sea legible tanto sobre áreas claras como sobre la imagen satelital.
-    label_outline_layer = pdk.Layer(
-        "TextLayer",
-        data=point_df,
-        get_position="[lon, lat]",
-        get_text="label",
-        get_size=17,
-        size_units="pixels",
-        get_color=[0, 0, 0, 245],
-        get_alignment_baseline="'bottom'",
-        get_text_anchor="'middle'",
-        get_pixel_offset=[0, -16],
-        billboard=True,
-        pickable=False,
-    )
-
-    label_layer = pdk.Layer(
-        "TextLayer",
-        data=point_df,
-        get_position="[lon, lat]",
-        get_text="label",
-        get_size=15,
-        size_units="pixels",
-        get_color=[255, 255, 255, 255],
-        get_alignment_baseline="'bottom'",
-        get_text_anchor="'middle'",
-        get_pixel_offset=[0, -16],
-        billboard=True,
-        pickable=False,
-    )
-
-    deck = pdk.Deck(
-        layers=[
-            satellite_tile_layer(),
-            marker_layer,
-            label_outline_layer,
-            label_layer,
-        ],
-        initial_view_state=pdk.ViewState(
-            latitude=float(latitude),
-            longitude=float(longitude),
-            zoom=zoom,
-            min_zoom=4,
-            max_zoom=20,
-            pitch=0,
-            bearing=0,
+    folium.CircleMarker(
+        location=[float(latitude), float(longitude)],
+        radius=7,
+        color="#FFFFFF",
+        weight=3,
+        fill=True,
+        fill_color="#007AFF",
+        fill_opacity=1.0,
+        tooltip=folium.Tooltip(
+            safe_label,
+            sticky=False,
+            direction="top",
         ),
-        map_style=None,
-        tooltip={
-            "html": "<b>{label}</b><br/>Lat: {lat}<br/>Lon: {lon}",
-            "style": {
-                "backgroundColor": "rgba(20, 20, 20, 0.88)",
-                "color": "white",
-            },
-        },
-    )
+    ).add_to(fmap)
 
-    st.pydeck_chart(
-        deck,
-        use_container_width=True,
+    folium.Marker(
+        location=[float(latitude), float(longitude)],
+        icon=folium.DivIcon(
+            icon_size=(220, 44),
+            icon_anchor=(110, 52),
+            html=(
+                '<div style="'
+                'display:inline-block;'
+                'transform:translateX(-50%);'
+                'background:rgba(20,28,38,0.90);'
+                'color:#ffffff;'
+                'font-size:13px;'
+                'font-weight:700;'
+                'line-height:1.2;'
+                'padding:6px 10px;'
+                'border:1px solid rgba(255,255,255,0.90);'
+                'border-radius:7px;'
+                'box-shadow:0 2px 7px rgba(0,0,0,0.35);'
+                'white-space:nowrap;'
+                'text-align:center;'
+                '">'
+                f'{safe_label}'
+                '</div>'
+            ),
+        ),
+        interactive=False,
+    ).add_to(fmap)
+
+    st_folium(
+        fmap,
+        width=None,
         height=height,
+        use_container_width=True,
+        returned_objects=[],
+        key=f"sat-map-{float(latitude):.6f}-{float(longitude):.6f}-{safe_label}",
     )
 
 
