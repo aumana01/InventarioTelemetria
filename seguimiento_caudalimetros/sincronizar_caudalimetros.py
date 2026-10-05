@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 
 from src.config import Settings
-from src.core import determine_key_column
+from src.core import determine_key_column_from_frame
 from src.sql_repository import SqlMeterRepository
 from src.supabase_repository import SupabaseMeterRepository
 
@@ -35,7 +35,7 @@ def main() -> int:
         print("La consulta SQL no devolvió caudalímetros con geometría. No se sincronizó nada.")
         return 0
 
-    key_column = determine_key_column(meters.columns, settings.sql_key_field)
+    key_column = determine_key_column_from_frame(meters, settings.sql_key_field)
     print(f"Registros leídos: {len(meters)}")
     print(f"Clave utilizada: {key_column}")
     print(

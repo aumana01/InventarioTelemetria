@@ -13,6 +13,7 @@ from src.core import (
     QUALITY_VALUES,
     RECTIFICATION_VALUES,
     determine_key_column,
+    determine_key_column_from_frame,
     snapshot_from_row,
     validate_html_file,
     validate_review,
@@ -258,7 +259,7 @@ if meters.empty:
         st.warning("La consulta SQL no devolvió caudalímetros con geometría.")
     st.stop()
 
-key_column = determine_key_column(meters.columns, settings.sql_key_field)
+key_column = determine_key_column_from_frame(meters, settings.sql_key_field)
 meters = meters.reset_index(drop=True)
 
 st.sidebar.title("Seguimiento de Caudalímetros")

@@ -1,8 +1,11 @@
 from decimal import Decimal
 
+import pandas as pd
+
 from src.core import (
     choose_html_attachment,
     determine_key_column,
+    determine_key_column_from_frame,
     snapshot_from_row,
     validate_html_file,
     validate_review,
@@ -64,3 +67,27 @@ def test_choose_html_attachment():
 def test_snapshot_normalizes_decimal():
     data = snapshot_from_row({"valor": Decimal("12.5")})
     assert data["valor"] == 12.5
+
+
+def test_determine_key_column_from_frame_skips_empty_globalid():
+    frame = pd.DataFrame(
+        {
+            "GlobalID": [None, None, None],
+            "OBJECTID": [1, 2, 3],
+            "Nombre": ["A", "B", "C"],
+        }
+    )
+    assert determine_key_column_from_frame(frame, "Código_Caudalimetro") == "OBJECTID"
+
+
+def test_determine_key_column_from_frame_prefers_populated_configured():
+    frame = pd.DataFrame(
+        {
+            "Código_Caudalimetro": ["C-1", "C-2"],
+            "OBJECTID": [1, 2],
+        }
+    )
+    assert (
+        determine_key_column_from_frame(frame, "Código_Caudalimetro")
+        == "Código_Caudalimetro"
+    )
