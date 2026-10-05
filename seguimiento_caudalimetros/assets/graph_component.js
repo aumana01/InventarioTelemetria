@@ -28,10 +28,55 @@ export default function({ data, parentElement }) {
       delete layout.height;
       layout.autosize = true;
 
+      // Fuerza una barra de herramientas horizontal, legible y compacta.
+      layout.modebar = {
+        ...(layout.modebar || {}),
+        orientation: "h",
+        bgcolor: "rgba(20, 24, 31, 0.82)",
+        color: "#f3f4f6",
+        activecolor: "#60a5fa",
+      };
+
+      // Conserva la configuración del gráfico de origen, pero asegura un
+      // conjunto completo de herramientas útiles para análisis operativo.
+      const sourceConfig = { ...(figure?.config || {}) };
+      const sourceAddedButtons = Array.isArray(sourceConfig.modeBarButtonsToAdd)
+        ? sourceConfig.modeBarButtonsToAdd
+        : [];
+
+      const enhancedButtons = [
+        "drawline",
+        "drawopenpath",
+        "drawclosedpath",
+        "drawcircle",
+        "drawrect",
+        "eraseshape",
+        "toggleSpikelines",
+        "hoverClosestCartesian",
+        "hoverCompareCartesian",
+      ];
+
       const config = {
+        ...sourceConfig,
         responsive: true,
+        displayModeBar: true,
         displaylogo: false,
-        ...(figure?.config || {}),
+        scrollZoom: true,
+        doubleClick: "reset+autosize",
+        showTips: true,
+        showAxisDragHandles: true,
+        showAxisRangeEntryBoxes: true,
+        modeBarButtonsToRemove: [],
+        modeBarButtonsToAdd: [
+          ...new Set([...sourceAddedButtons, ...enhancedButtons]),
+        ],
+        toImageButtonOptions: {
+          format: "png",
+          filename: "grafico_caudalimetro",
+          width: 1800,
+          height: 1000,
+          scale: 2,
+        },
       };
 
       Promise.resolve(
