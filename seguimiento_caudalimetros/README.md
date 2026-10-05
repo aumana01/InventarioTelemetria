@@ -284,6 +284,54 @@ La tabla conserva los colores de las filas, permite ordenar columnas y descargar
 
 **Actualizar datos** recarga el inventario y las revisiones. Las revisiones tienen una caché de 60 segundos, invalidada al guardar, editar o eliminar una revisión desde la aplicación. El Dashboard es de consulta y **no requiere una nueva migración de Supabase**.
 
+## 11. Reportes HTML por correo desde Dashboard
+
+Debajo de los resultados filtrados, **Reporte por correo → Preparar reporte y ver correo** permite generar un mensaje HTML sin adjuntos. El reporte incluye título, responsable, mensaje introductorio, filtros, indicadores, resumen por sistema y filas con estados rojos/verdes/grises. Se puede limitar a estados rojos y elegir 25, 50, 100 o 200 filas de detalle. Los indicadores abarcan todos los resultados del reporte; las filas rojas tienen prioridad. Si se omiten filas o se resumen textos extensos, el correo lo indica. El HTML se limita a 90 KB para mantener un cuerpo de correo razonable.
+
+El diseño usa tablas y estilos en línea, con ajuste para pantallas pequeñas; la apariencia final puede variar según el cliente de correo. Se incluye una versión en texto plano. La vista previa y su descarga HTML funcionan sin configurar Resend. El modo demo permite revisar el diseño, pero no enviar.
+
+### Preparación de Supabase
+
+Para una instalación existente, ejecute **migration_20261005_email_reports.sql** en SQL Editor. Esta migración crea únicamente `public.caudalimetro_reportes_envios`, con RLS activado y acceso reservado al backend mediante service role. No modifica el inventario ni las revisiones. Las instalaciones nuevas que ejecuten el esquema completo ya incluyen esta tabla.
+
+El registro conserva destinatarios, asunto, filtros, cantidades, hash del HTML, identificador de solicitud y respuesta del proveedor. No guarda el cuerpo HTML, adjuntos ni claves API. Si no puede registrarse la solicitud, no se realiza el envío.
+
+### Primera prueba, sin dominio propio
+
+1. Cree una cuenta en **https://resend.com** y obtenga una clave API con permiso de envío.
+2. En **Streamlit → Settings → Secrets**, agregue esta sección; la clave real no se coloca en GitHub ni en el formulario:
+
+```toml
+[email]
+resend_api_key = "TU_CLAVE_API_RESEND"
+from_email = "caudales@OSgam"
+from_name = "OS GAM · Caudales"
+test_mode = true
+test_recipient = "CORREO_CON_EL_QUE_CREASTE_TU_CUENTA_RESEND"
+reply_to = ""
+dashboard_url = ""
+```
+
+3. Abra Dashboard, aplique los filtros, revise la vista previa y pulse **Enviar reporte por correo**. El modo de prueba usa automáticamente **onboarding@resend.dev** y solo permite el correo de la cuenta Resend, sin copias.
+4. Consulte **Consultar historial de correos** y compruebe la recepción en su bandeja, incluyendo correo no deseado.
+
+`caudales@OSgam` expresa el nombre deseado, pero **no contiene un dominio completo verificable**. Se conserva como remitente previsto y nunca se utiliza para un envío de producción mientras esté incompleto. No se agrega ni registra automáticamente una extensión de dominio.
+
+### Producción con remitente propio
+
+Verifique un dominio que controle en Resend mediante los registros DNS solicitados. Actualice `from_email` a la dirección completa sobre ese dominio y establezca `test_mode = false`. Puede configurar `reply_to` con un buzón existente y `dashboard_url` con la URL pública del aplicativo para incluir el botón **Consultar Dashboard**. Los destinatarios se ingresan como direcciones completas separadas por coma, punto y coma o salto de línea; se admiten hasta 50 incluyendo las copias.
+
+El envío se ejecuta desde Python en el servidor de Streamlit usando la API HTTPS de Resend. No depende de Outlook ni del agente SharePoint. También se admiten variables de entorno: `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_FROM_NAME`, `EMAIL_REPLY_TO`, `DASHBOARD_URL`, `EMAIL_TEST_MODE`, `EMAIL_TEST_RECIPIENT`.
+
+### Estados y reintentos
+
+- **Preparado**: solicitud registrada antes de contactar al proveedor.
+- **Aceptado por Resend**: el proveedor devolvió un identificador. No confirma entrega en la bandeja del destinatario.
+- **Error**: respuesta de rechazo o validación.
+- **Sin confirmación**: timeout o respuesta incierta; debe verificarse en Resend o reintentarse la misma solicitud.
+
+Cada solicitud conserva su identificador de idempotencia y contenido en los reintentos. Un envío aceptado deshabilita el botón; **Preparar otro envío** inicia una solicitud nueva de forma explícita. Después de 23 horas se bloquea el reintento para evitar exceder la vigencia de 24 horas de idempotencia de Resend. El historial no utiliza webhooks de entrega en esta versión. La cuota efectiva corresponde a la cuenta Resend; se deben consultar sus límites y consumo allí.
+
 ## Seguridad
 
 - No se escriben cambios en la geodatabase.

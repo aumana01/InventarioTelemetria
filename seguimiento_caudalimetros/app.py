@@ -27,6 +27,7 @@ from src.core import (
 )
 from src.graph_renderer import render_stored_graph
 from src.dashboard_ui import render_dashboard
+from src.email_delivery import EmailAuditRepository, EmailSettings
 from src.sql_repository import SqlMeterRepository
 from src.supabase_repository import SupabaseMeterRepository, SupabaseReviewRepository
 from src.ui import load_css, readonly_snapshot, review_summary, status_badge
@@ -140,6 +141,11 @@ def get_supabase_repo(current_settings: Settings) -> SupabaseReviewRepository:
 @st.cache_data(ttl=60, show_spinner=False)
 def load_dashboard_reviews(current_settings: Settings) -> list[dict[str, Any]]:
     return get_supabase_repo(current_settings).list_dashboard_reviews()
+
+
+@st.cache_resource
+def get_email_audit_repo(current_settings: Settings) -> EmailAuditRepository:
+    return EmailAuditRepository(current_settings)
 
 
 def first_nonempty(row: pd.Series, candidates: list[str]) -> str:
@@ -1648,7 +1654,10 @@ if page == "Dashboard":
     ]
     if settings.demo_mode:
         st.info("Modo demostración: se muestran los equipos de ejemplo sin revisiones almacenadas.")
-    render_dashboard(dashboard_inventory, dashboard_reviews)
+    render_dashboard(dashboard_inventory, dashboard_reviews,
+                     email_settings=EmailSettings.load(),
+                     email_audit=get_email_audit_repo(settings) if settings.supabase_configured and not settings.demo_mode else None,
+                     demo_mode=settings.demo_mode)
     st.stop()
 
 st.sidebar.markdown("### Buscar equipo")

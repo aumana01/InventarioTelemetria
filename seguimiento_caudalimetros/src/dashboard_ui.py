@@ -5,6 +5,8 @@ from typing import Any, Mapping, Sequence
 
 import pandas as pd
 import streamlit as st
+from src.email_delivery import EmailAuditRepository, EmailSettings
+from src.email_ui import render_email_module
 
 from src.dashboard import (
     GRAY, GREEN, PERIODS, RED, build_dashboard_tables, export_csv,
@@ -20,7 +22,10 @@ def _choose(column, label: str, frame: pd.DataFrame, field: str) -> list[str]:
     return column.multiselect(label, options, key=key, placeholder="Todos")
 
 
-def render_dashboard(inventory: Sequence[Mapping[str, Any]], reviews: Sequence[Mapping[str, Any]]) -> None:
+def render_dashboard(inventory: Sequence[Mapping[str, Any]], reviews: Sequence[Mapping[str, Any]], *,
+                     email_settings: EmailSettings | None = None,
+                     email_audit: EmailAuditRepository | None = None,
+                     demo_mode: bool = False) -> None:
     today = local_today()
     st.title("Dashboard")
     st.caption("Análisis de pendientes, mantenimiento y revisiones de caudalímetros.")
@@ -132,3 +137,16 @@ def render_dashboard(inventory: Sequence[Mapping[str, Any]], reviews: Sequence[M
     st.download_button("Descargar resultados CSV", export_csv(table),
                        file_name=f"dashboard_caudalimetros_{today.isoformat()}.csv", mime="text/csv",
                        key="dashboard-download")
+    report_filters = {"Período": period, "Fecha utilizada": date_field}
+    if start:
+        report_filters["Desde / hasta"] = f"{start:%d/%m/%Y} — {end:%d/%m/%Y}"
+    report_filters.update({field: values for field, values in selections.items() if values})
+    if query.strip():
+        report_filters["Búsqueda"] = query.strip()
+    report_filters["Incluir sin fecha"] = "Sí" if include_undated or not start else "No"
+    if only_unreviewed and not history:
+        report_filters["Solo equipos sin revisión"] = "Sí"
+    render_email_module(result, context={"scope": ("Historial de revisiones" if history else "Estado actual · última revisión por equipo")
+                                         + (" · Detalle por aspecto" if detail else " · Resumen por equipo"),
+                                        "filters": report_filters},
+                        settings=email_settings or EmailSettings.load(), audit=email_audit, demo_mode=demo_mode)
