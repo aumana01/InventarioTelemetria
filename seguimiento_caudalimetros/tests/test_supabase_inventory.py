@@ -71,3 +71,44 @@ def test_load_meters_reconstructs_dataframe(monkeypatch):
     assert float(result.iloc[0]["LONGITUD"]) == -84.1
     assert float(result.iloc[0]["LATITUD"]) == 9.9
     assert int(result.iloc[0]["EPSG_WGS84"]) == 4326
+
+
+def test_load_meters_uses_only_latest_sync_batch(monkeypatch):
+    rows = [
+        {
+            "equipment_key": "OLD-001",
+            "sql_key_field": "OBJECTID",
+            "attributes": {"OBJECTID": 1, "Nombre": "Registro antiguo"},
+            "longitude": -84.1,
+            "latitude": 9.9,
+            "x_crtm05": 490000.0,
+            "y_crtm05": 1097000.0,
+            "srid_original": 5367,
+            "synced_at": "2026-10-05T20:00:00+00:00",
+        },
+        {
+            "equipment_key": "NEW-001",
+            "sql_key_field": "OBJECTID",
+            "attributes": {"OBJECTID": 2, "Nombre": "Registro vigente"},
+            "longitude": -84.2,
+            "latitude": 9.8,
+            "x_crtm05": 491000.0,
+            "y_crtm05": 1098000.0,
+            "srid_original": 5367,
+            "synced_at": "2026-10-05T22:00:00+00:00",
+        },
+    ]
+    settings = SimpleNamespace(
+        supabase_configured=True,
+        supabase_url="https://example.supabase.co",
+        supabase_key="secret",
+        supabase_meters_table="caudalimetros",
+        sql_key_field="OBJECTID",
+    )
+    monkeypatch.setattr(repository_module, "_client", lambda _settings: FakeClient(rows))
+
+    result = SupabaseMeterRepository(settings).load_meters()
+
+    assert len(result) == 1
+    assert int(result.iloc[0]["OBJECTID"]) == 2
+    assert result.iloc[0]["Nombre"] == "Registro vigente"
