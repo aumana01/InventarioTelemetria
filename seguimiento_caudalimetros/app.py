@@ -1605,6 +1605,7 @@ if page == "Revisión de equipo":
             st.markdown(f"**Sistema de Abastecimiento:** {selected_system_name}")
         st.markdown(f"**Equipo:** {selected_meter_name or 'Sin nombre registrado'}")
 
+        st.markdown("### CONTROL GENERAL DE LA REVISIÓN")
         rectification_status = st.radio(
             "¿El equipo se ha logrado rectificar con otro equipo de forma simultánea?",
             options=list(RECTIFICATION_VALUES),
@@ -1615,22 +1616,6 @@ if page == "Revisión de equipo":
             rectification_equipment = st.text_input(
                 "¿Con cuál equipo se realizó la rectificación?",
                 placeholder="Ej.: ultrasónico portátil / marca-modelo / código interno",
-            )
-
-        is_ultrasonic = st.checkbox("Es un equipo ultrasónico")
-        circumference_mm = None
-        wall_thickness_mm = None
-        transducer_distance_mm = None
-        if is_ultrasonic:
-            c1, c2, c3 = st.columns(3)
-            circumference_mm = c1.number_input(
-                "Circunferencia [mm]", min_value=0.0, step=0.1, format="%.2f"
-            )
-            wall_thickness_mm = c2.number_input(
-                "Espesor [mm]", min_value=0.0, step=0.1, format="%.2f"
-            )
-            transducer_distance_mm = c3.number_input(
-                "Distancia transductores [mm]", min_value=0.0, step=0.1, format="%.2f"
             )
 
         measurement_quality = st.selectbox(
@@ -1651,7 +1636,12 @@ if page == "Revisión de equipo":
         )
         reviewed_by = st.text_input("Revisado por", placeholder="Nombre o usuario responsable")
 
-        st.markdown("#### Punto de medición puntual")
+        maintenance_fields = render_maintenance_section("new")
+        data_fields = render_data_section("new")
+        repair_fields = render_repairs_section("new")
+        equipment_fields = render_equipment_generalities("new")
+
+        st.markdown("### PUNTO DE MEDICIÓN PUNTUAL")
         register_measurement_point = st.checkbox(
             "Registrar un punto de medición distinto o complementario al macromedidor"
         )
@@ -1680,7 +1670,7 @@ if page == "Revisión de equipo":
                 placeholder="Ej.: válvula, hidrante, cámara o punto aguas abajo",
             )
 
-        st.markdown("#### Gráfico comparativo")
+        st.markdown("### GRÁFICO COMPARATIVO")
         graph_options = [
             "Sin gráfico",
             "Cargar archivo HTML",
@@ -1752,14 +1742,19 @@ if page == "Revisión de equipo":
             data = {
                 "rectification_status": rectification_status,
                 "rectification_equipment": rectification_equipment,
-                "is_ultrasonic": is_ultrasonic,
-                "circumference_mm": circumference_mm,
-                "wall_thickness_mm": wall_thickness_mm,
-                "transducer_distance_mm": transducer_distance_mm,
+                "is_ultrasonic": equipment_fields["is_ultrasonic"],
+                "circumference_mm": equipment_fields["circumference_mm"],
+                "wall_thickness_mm": equipment_fields["wall_thickness_mm"],
+                "transducer_distance_mm": equipment_fields["transducer_distance_mm"],
                 "measurement_quality": measurement_quality,
             }
             validation = validate_review(data)
             errors = list(validation.errors)
+            if (
+                repair_fields.get("repair_spare_part_required")
+                and not repair_fields.get("repair_spare_part_detail")
+            ):
+                errors.append("Indique cuál repuesto particular requiere el equipo.")
 
             measurement_latitude = None
             measurement_longitude = None
@@ -1829,12 +1824,6 @@ if page == "Revisión de equipo":
                             "geodatabase_snapshot": snapshot,
                             "rectification_status": rectification_status,
                             "rectification_equipment": rectification_equipment or None,
-                            "is_ultrasonic": bool(is_ultrasonic),
-                            "circumference_mm": circumference_mm if is_ultrasonic else None,
-                            "wall_thickness_mm": wall_thickness_mm if is_ultrasonic else None,
-                            "transducer_distance_mm": (
-                                transducer_distance_mm if is_ultrasonic else None
-                            ),
                             "measurement_quality": measurement_quality,
                             "graph_source": graph_source,
                             "graph_storage_path": graph_storage_path,
@@ -1857,6 +1846,11 @@ if page == "Revisión de equipo":
                             payload["measurement_location_notes"] = (
                                 measurement_location_notes.strip() or None
                             )
+
+                        payload.update(equipment_fields)
+                        payload.update(maintenance_fields)
+                        payload.update(data_fields)
+                        payload.update(repair_fields)
 
                         saved = review_repo.insert_review(payload)
                         st.success(
