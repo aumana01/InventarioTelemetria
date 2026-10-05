@@ -36,7 +36,11 @@ La geodatabase continúa siendo la fuente maestra. Supabase mantiene una copia o
 - Sincroniza el inventario a `public.caudalimetros` mediante UPSERT.
 - Presenta mapa y atributos de geodatabase en modo solo lectura.
 - Registra revisiones históricas en Supabase sin modificar la geodatabase.
-- Controla rectificación simultánea, equipo utilizado, condición ultrasónica, circunferencia, espesor, distancia de transductores, calidad de medición, último mantenimiento y fallas.
+- Controla rectificación simultánea, calidad de medición y seguimiento histórico.
+- Incorpora secciones de mantenimiento con semáforos automáticos por vencimiento (1, 6 y 12 meses).
+- Registra disponibilidad de datos en Perspective, Vision Client CCO, Vision Client SCADA vr2 y módulo de reportes.
+- Controla reparaciones pendientes con semáforo verde/rojo para señal, calibración, energía, cableado, repuestos y sustituciones.
+- Registra generalidades por tipo de equipo: ultrasónico, electromagnético, canal abierto e inserción.
 - Permite cargar un HTML comparativo y almacenarlo en un bucket privado de Supabase.
 - Permite guardar un vínculo original de Microsoft List / SharePoint y extraer el ID del adjunto cuando el URL contiene `/Attachments/{id}/archivo.html`.
 - Los vínculos de SharePoint quedan pendientes de sincronización local; un script abre Microsoft Edge con la sesión normal del usuario, extrae el HTML real y lo copia a Supabase.
@@ -60,6 +64,12 @@ Esto crea:
 - bucket privado `caudalimetros-graficos`.
 
 Si ya había ejecutado una versión anterior de `supabase_schema.sql`, puede ejecutar nuevamente el archivo completo. Las instrucciones usan `create table if not exists`.
+
+Si la instalación ya existe y únicamente desea incorporar el nuevo módulo de mantenimiento, ejecute:
+
+`migration_20261005_maintenance_tracking.sql`
+
+Esta migración agrega únicamente columnas nuevas y conserva los registros históricos existentes. Los semáforos no se almacenan como colores: se calculan en tiempo real a partir de las fechas y estados registrados.
 
 La aplicación usa una `service_role_key` únicamente del lado servidor. No debe colocarse en código fuente, HTML o JavaScript.
 

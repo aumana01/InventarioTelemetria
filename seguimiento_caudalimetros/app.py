@@ -14,10 +14,12 @@ from streamlit_folium import st_folium
 
 from src.config import Settings
 from src.core import (
+    EQUIPMENT_TYPE_VALUES,
     QUALITY_VALUES,
     RECTIFICATION_VALUES,
     determine_key_column,
     determine_key_column_from_frame,
+    maintenance_due_status,
     parse_measurement_coordinates,
     parse_sharepoint_attachment_url,
     snapshot_from_row,
@@ -389,6 +391,595 @@ def _rectification_index(value: Any) -> int:
         return 0
 
 
+def _yes_no_choice(value: Any) -> str:
+    if value is True:
+        return "Sí"
+    if value is False:
+        return "No"
+    return "Sin verificar"
+
+
+def _yes_no_value(choice: str) -> bool | None:
+    if choice == "Sí":
+        return True
+    if choice == "No":
+        return False
+    return None
+
+
+def _yes_no_index(value: Any) -> int:
+    return ["Sin verificar", "Sí", "No"].index(_yes_no_choice(value))
+
+
+def _maintenance_badge(
+    value: Any,
+    months: int,
+    *,
+    applicable: bool = True,
+    condition_ok: bool = True,
+) -> None:
+    kind, message = maintenance_due_status(
+        value,
+        months,
+        applicable=applicable,
+        condition_ok=condition_ok,
+    )
+    status_badge(message, kind)
+
+
+def render_maintenance_section(
+    prefix: str,
+    current: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    current = current or {}
+    st.markdown("### ASPECTOS DE MANTENIMIENTO")
+    st.caption(
+        "El semáforo se calcula automáticamente con la fecha registrada. "
+        "Verde = vigente; rojo = vencido, sin fecha o condición no satisfactoria."
+    )
+
+    c1, c2 = st.columns([0.72, 0.28])
+    gel_date = c1.date_input(
+        "Cambio de gel",
+        value=_review_date_value(current.get("maintenance_gel_date")),
+        max_value=date.today(),
+        key=f"{prefix}-maintenance-gel",
+    )
+    with c2:
+        st.caption("Vigencia: 6 meses")
+        _maintenance_badge(gel_date, 6)
+
+    c1, c2 = st.columns([0.72, 0.28])
+    alignment_date = c1.date_input(
+        "Transductores alineados y con buena sujeción",
+        value=_review_date_value(
+            current.get("maintenance_transducers_alignment_date")
+        ),
+        max_value=date.today(),
+        key=f"{prefix}-maintenance-alignment",
+    )
+    with c2:
+        st.caption("Vigencia: 6 meses")
+        _maintenance_badge(alignment_date, 6)
+
+    download_applicable = st.checkbox(
+        "Aplica descarga de datos internos del equipo",
+        value=bool(
+            current.get("maintenance_internal_download_applicable")
+            if current.get("maintenance_internal_download_applicable") is not None
+            else True
+        ),
+        key=f"{prefix}-maintenance-download-applicable",
+        help="Desmarque para equipos antiguos donde esta función no aplica.",
+    )
+    c1, c2 = st.columns([0.72, 0.28])
+    internal_download_date = c1.date_input(
+        "Última descarga de datos internos",
+        value=_review_date_value(
+            current.get("maintenance_internal_download_date")
+        ),
+        max_value=date.today(),
+        disabled=not download_applicable,
+        key=f"{prefix}-maintenance-download",
+    )
+    with c2:
+        st.caption("Vigencia: 6 meses")
+        _maintenance_badge(
+            internal_download_date,
+            6,
+            applicable=download_applicable,
+        )
+
+    c1, c2 = st.columns([0.72, 0.28])
+    simultaneous_date = c1.date_input(
+        "Última instalación simultánea con otro equipo",
+        value=_review_date_value(
+            current.get("maintenance_simultaneous_installation_date")
+        ),
+        max_value=date.today(),
+        key=f"{prefix}-maintenance-simultaneous",
+    )
+    with c2:
+        st.caption("Vigencia: 12 meses")
+        _maintenance_badge(simultaneous_date, 12)
+
+    st.markdown("**Funcionamiento en SCADA**")
+    s1, s2, s3 = st.columns([0.34, 0.38, 0.28])
+    scada_choice = s1.selectbox(
+        "¿Funciona en SCADA?",
+        options=["Sin verificar", "Sí", "No"],
+        index=_yes_no_index(current.get("maintenance_scada_working")),
+        key=f"{prefix}-maintenance-scada-working",
+    )
+    scada_date = s2.date_input(
+        "Fecha de verificación SCADA",
+        value=_review_date_value(current.get("maintenance_scada_check_date")),
+        max_value=date.today(),
+        key=f"{prefix}-maintenance-scada-date",
+    )
+    with s3:
+        st.caption("Vigencia: 1 mes")
+        _maintenance_badge(
+            scada_date,
+            1,
+            condition_ok=(scada_choice == "Sí"),
+        )
+
+    return {
+        "maintenance_gel_date": gel_date.isoformat() if gel_date else None,
+        "maintenance_transducers_alignment_date": (
+            alignment_date.isoformat() if alignment_date else None
+        ),
+        "maintenance_internal_download_applicable": bool(download_applicable),
+        "maintenance_internal_download_date": (
+            internal_download_date.isoformat()
+            if download_applicable and internal_download_date
+            else None
+        ),
+        "maintenance_simultaneous_installation_date": (
+            simultaneous_date.isoformat() if simultaneous_date else None
+        ),
+        "maintenance_scada_working": _yes_no_value(scada_choice),
+        "maintenance_scada_check_date": (
+            scada_date.isoformat() if scada_date else None
+        ),
+    }
+
+
+def render_data_section(
+    prefix: str,
+    current: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    current = current or {}
+    st.markdown("### ASPECTOS DE DATOS")
+    st.caption("Registro de disponibilidad del dato. Esta sección no utiliza semáforo.")
+
+    fields = [
+        (
+            "data_perspective_visible",
+            "data_perspective_check_date",
+            "¿Se visualiza en Perspective?",
+            "perspective",
+        ),
+        (
+            "data_vision_cco_visible",
+            "data_vision_cco_check_date",
+            "¿Se visualiza en Vision Client de CCO (PC)?",
+            "vision-cco",
+        ),
+        (
+            "data_vision_scada_vr2_visible",
+            "data_vision_scada_vr2_check_date",
+            "¿Se visualiza en Vision Client de SCADA vr2 (PC)?",
+            "vision-vr2",
+        ),
+        (
+            "data_vision_reports_downloadable",
+            "data_vision_reports_check_date",
+            "¿Se pueden descargar datos en el módulo de reportes de Vision Client?",
+            "vision-reports",
+        ),
+    ]
+
+    payload: dict[str, Any] = {}
+    for bool_key, date_key, label, suffix in fields:
+        d1, d2 = st.columns([0.58, 0.42])
+        choice = d1.selectbox(
+            label,
+            options=["Sin verificar", "Sí", "No"],
+            index=_yes_no_index(current.get(bool_key)),
+            key=f"{prefix}-data-{suffix}",
+        )
+        checked_at = d2.date_input(
+            "Fecha",
+            value=_review_date_value(current.get(date_key)),
+            max_value=date.today(),
+            key=f"{prefix}-data-{suffix}-date",
+        )
+        payload[bool_key] = _yes_no_value(choice)
+        payload[date_key] = checked_at.isoformat() if checked_at else None
+
+    return payload
+
+
+def render_repairs_section(
+    prefix: str,
+    current: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    current = current or {}
+    st.markdown("### ASPECTOS DE REPARACIÓN O MANTENIMIENTO")
+    st.caption(
+        "Por defecto cada aspecto está en verde. Marque únicamente cuando exista "
+        "una falla, reparación o sustitución pendiente."
+    )
+
+    fields = [
+        ("repair_signal_pending", "Señal"),
+        ("repair_calibration_pending", "Calibración"),
+        ("repair_power_pending", "Energía"),
+        ("repair_wiring_pending", "Cableado"),
+        ("repair_temporary_replacement", "Sustitución total temporal del equipo"),
+        ("repair_permanent_replacement", "Sustitución total permanente del equipo"),
+    ]
+
+    payload: dict[str, Any] = {}
+    for key, label in fields:
+        r1, r2 = st.columns([0.72, 0.28])
+        pending = r1.checkbox(
+            f"{label}: existe pendiente / falla",
+            value=bool(current.get(key, False)),
+            key=f"{prefix}-{key}",
+        )
+        with r2:
+            status_badge(
+                "🔴 Pendiente" if pending else "🟢 Sin pendiente",
+                "error" if pending else "success",
+            )
+        payload[key] = bool(pending)
+
+    p1, p2 = st.columns([0.72, 0.28])
+    spare_required = p1.checkbox(
+        "Requiere un repuesto particular",
+        value=bool(current.get("repair_spare_part_required", False)),
+        key=f"{prefix}-repair-spare-part",
+    )
+    with p2:
+        status_badge(
+            "🔴 Requiere repuesto" if spare_required else "🟢 Sin pendiente",
+            "error" if spare_required else "success",
+        )
+    spare_detail = ""
+    if spare_required:
+        spare_detail = st.text_input(
+            "Indique cuál repuesto requiere",
+            value=str(current.get("repair_spare_part_detail") or ""),
+            key=f"{prefix}-repair-spare-detail",
+        )
+
+    payload["repair_spare_part_required"] = bool(spare_required)
+    payload["repair_spare_part_detail"] = spare_detail.strip() or None
+    return payload
+
+
+def render_equipment_generalities(
+    prefix: str,
+    current: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    current = current or {}
+    st.markdown("### GENERALIDADES DEL EQUIPO")
+
+    current_type = str(current.get("equipment_type") or "No definido")
+    if current_type == "No definido" and current.get("is_ultrasonic"):
+        current_type = "Ultrasónico"
+    if current_type not in EQUIPMENT_TYPE_VALUES:
+        current_type = "No definido"
+
+    equipment_type = st.selectbox(
+        "Tipo de equipo",
+        options=list(EQUIPMENT_TYPE_VALUES),
+        index=list(EQUIPMENT_TYPE_VALUES).index(current_type),
+        key=f"{prefix}-equipment-type",
+    )
+
+    payload: dict[str, Any] = {
+        "equipment_type": equipment_type,
+        "is_ultrasonic": equipment_type == "Ultrasónico",
+        "transducer_serial": None,
+        "pipe_material": None,
+        "circumference_mm": None,
+        "wall_thickness_mm": None,
+        "transducer_distance_mm": None,
+        "electromagnetic_diameter": None,
+        "calibration_factor": None,
+        "open_channel_height": None,
+        "open_channel_width": None,
+        "open_channel_x_downstream": None,
+        "open_channel_y_downstream": None,
+        "open_channel_surface_type": None,
+        "insertion_depth": None,
+        "insertion_diameter": None,
+    }
+
+    if equipment_type == "Ultrasónico":
+        payload["transducer_serial"] = (
+            st.text_input(
+                "No. serie de transductores actual",
+                value=str(current.get("transducer_serial") or ""),
+                key=f"{prefix}-transducer-serial",
+            ).strip()
+            or None
+        )
+        u1, u2, u3 = st.columns(3)
+        circumference = u1.number_input(
+            "Circunferencia [mm]",
+            min_value=0.0,
+            value=float(current.get("circumference_mm") or 0),
+            step=0.1,
+            format="%.2f",
+            key=f"{prefix}-circumference",
+        )
+        thickness = u2.number_input(
+            "Espesor [mm]",
+            min_value=0.0,
+            value=float(current.get("wall_thickness_mm") or 0),
+            step=0.1,
+            format="%.2f",
+            key=f"{prefix}-wall-thickness",
+        )
+        distance = u3.number_input(
+            "Distancia de transductores [mm]",
+            min_value=0.0,
+            value=float(current.get("transducer_distance_mm") or 0),
+            step=0.1,
+            format="%.2f",
+            key=f"{prefix}-transducer-distance",
+        )
+        payload["circumference_mm"] = circumference
+        payload["wall_thickness_mm"] = thickness
+        payload["transducer_distance_mm"] = distance
+        payload["pipe_material"] = (
+            st.text_input(
+                "Material de tubería",
+                value=str(current.get("pipe_material") or ""),
+                key=f"{prefix}-pipe-material",
+            ).strip()
+            or None
+        )
+
+    elif equipment_type == "Electromagnético":
+        e1, e2 = st.columns(2)
+        diameter = e1.number_input(
+            "Diámetro",
+            min_value=0.0,
+            value=float(current.get("electromagnetic_diameter") or 0),
+            step=0.1,
+            key=f"{prefix}-electromagnetic-diameter",
+        )
+        calibration = e2.number_input(
+            "Factor de calibración",
+            min_value=0.0,
+            value=float(current.get("calibration_factor") or 0),
+            step=0.0001,
+            format="%.4f",
+            key=f"{prefix}-calibration-factor",
+        )
+        payload["electromagnetic_diameter"] = diameter or None
+        payload["calibration_factor"] = calibration or None
+
+    elif equipment_type == "Canal Abierto":
+        c1, c2 = st.columns(2)
+        payload["open_channel_height"] = c1.number_input(
+            "Altura de canal",
+            min_value=0.0,
+            value=float(current.get("open_channel_height") or 0),
+            step=0.01,
+            key=f"{prefix}-channel-height",
+        )
+        payload["open_channel_width"] = c2.number_input(
+            "Ancho de canal",
+            min_value=0.0,
+            value=float(current.get("open_channel_width") or 0),
+            step=0.01,
+            key=f"{prefix}-channel-width",
+        )
+        c3, c4 = st.columns(2)
+        payload["open_channel_x_downstream"] = c3.number_input(
+            "X del equipo en sentido aguas abajo",
+            value=float(current.get("open_channel_x_downstream") or 0),
+            step=0.01,
+            key=f"{prefix}-channel-x",
+        )
+        payload["open_channel_y_downstream"] = c4.number_input(
+            "Y del equipo en sentido aguas abajo",
+            value=float(current.get("open_channel_y_downstream") or 0),
+            step=0.01,
+            key=f"{prefix}-channel-y",
+        )
+        payload["open_channel_surface_type"] = (
+            st.text_input(
+                "Tipo de superficie",
+                value=str(current.get("open_channel_surface_type") or ""),
+                key=f"{prefix}-channel-surface",
+            ).strip()
+            or None
+        )
+
+    elif equipment_type == "Inserción":
+        i1, i2 = st.columns(2)
+        depth = i1.number_input(
+            "Profundidad de inserción",
+            min_value=0.0,
+            value=float(current.get("insertion_depth") or 0),
+            step=0.1,
+            key=f"{prefix}-insertion-depth",
+        )
+        diameter = i2.number_input(
+            "Diámetro",
+            min_value=0.0,
+            value=float(current.get("insertion_diameter") or 0),
+            step=0.1,
+            key=f"{prefix}-insertion-diameter",
+        )
+        payload["insertion_depth"] = depth or None
+        payload["insertion_diameter"] = diameter or None
+
+    return payload
+
+
+def render_review_control_sections(review: dict[str, Any]) -> None:
+    st.markdown("### Estado de mantenimiento")
+    maintenance_rows = [
+        ("Cambio de gel", "maintenance_gel_date", 6, True, True),
+        (
+            "Alineación y sujeción de transductores",
+            "maintenance_transducers_alignment_date",
+            6,
+            True,
+            True,
+        ),
+        (
+            "Descarga de datos internos",
+            "maintenance_internal_download_date",
+            6,
+            bool(review.get("maintenance_internal_download_applicable", True)),
+            True,
+        ),
+        (
+            "Instalación simultánea con otro equipo",
+            "maintenance_simultaneous_installation_date",
+            12,
+            True,
+            True,
+        ),
+        (
+            "Funcionamiento en SCADA",
+            "maintenance_scada_check_date",
+            1,
+            True,
+            review.get("maintenance_scada_working") is True,
+        ),
+    ]
+    for label, key, months, applies, condition_ok in maintenance_rows:
+        m1, m2 = st.columns([0.62, 0.38])
+        value = review.get(key)
+        m1.write(f"**{label}:** {value or 'Sin fecha'}")
+        with m2:
+            _maintenance_badge(
+                value,
+                months,
+                applicable=applies,
+                condition_ok=condition_ok,
+            )
+
+    st.markdown("### Aspectos de datos")
+    data_rows = [
+        ("Perspective", "data_perspective_visible", "data_perspective_check_date"),
+        ("Vision Client CCO", "data_vision_cco_visible", "data_vision_cco_check_date"),
+        (
+            "Vision Client SCADA vr2",
+            "data_vision_scada_vr2_visible",
+            "data_vision_scada_vr2_check_date",
+        ),
+        (
+            "Descarga módulo de reportes",
+            "data_vision_reports_downloadable",
+            "data_vision_reports_check_date",
+        ),
+    ]
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "Validación": label,
+                    "Estado": _yes_no_choice(review.get(bool_key)),
+                    "Fecha": review.get(date_key) or "—",
+                }
+                for label, bool_key, date_key in data_rows
+            ]
+        ),
+        hide_index=True,
+        width="stretch",
+    )
+
+    st.markdown("### Reparaciones o mantenimiento pendiente")
+    repair_rows = [
+        ("Señal", "repair_signal_pending"),
+        ("Calibración", "repair_calibration_pending"),
+        ("Energía", "repair_power_pending"),
+        ("Cableado", "repair_wiring_pending"),
+        ("Sustitución temporal", "repair_temporary_replacement"),
+        ("Sustitución permanente", "repair_permanent_replacement"),
+    ]
+    for label, key in repair_rows:
+        pending = bool(review.get(key, False))
+        r1, r2 = st.columns([0.72, 0.28])
+        r1.write(label)
+        with r2:
+            status_badge(
+                "🔴 Pendiente" if pending else "🟢 Sin pendiente",
+                "error" if pending else "success",
+            )
+    spare = bool(review.get("repair_spare_part_required", False))
+    r1, r2 = st.columns([0.72, 0.28])
+    detail = str(review.get("repair_spare_part_detail") or "").strip()
+    r1.write(
+        "Repuesto particular"
+        + (f": {detail}" if spare and detail else "")
+    )
+    with r2:
+        status_badge(
+            "🔴 Requiere repuesto" if spare else "🟢 Sin pendiente",
+            "error" if spare else "success",
+        )
+
+    st.markdown("### Generalidades del equipo")
+    equipment_type = str(review.get("equipment_type") or "No definido")
+    general_rows = [("Tipo de equipo", equipment_type)]
+    if equipment_type == "Ultrasónico" or review.get("is_ultrasonic"):
+        general_rows.extend(
+            [
+                ("Serie de transductores", review.get("transducer_serial")),
+                ("Circunferencia [mm]", review.get("circumference_mm")),
+                ("Espesor [mm]", review.get("wall_thickness_mm")),
+                (
+                    "Distancia de transductores [mm]",
+                    review.get("transducer_distance_mm"),
+                ),
+                ("Material de tubería", review.get("pipe_material")),
+            ]
+        )
+    elif equipment_type == "Electromagnético":
+        general_rows.extend(
+            [
+                ("Diámetro", review.get("electromagnetic_diameter")),
+                ("Factor de calibración", review.get("calibration_factor")),
+            ]
+        )
+    elif equipment_type == "Canal Abierto":
+        general_rows.extend(
+            [
+                ("Altura de canal", review.get("open_channel_height")),
+                ("Ancho de canal", review.get("open_channel_width")),
+                ("X aguas abajo", review.get("open_channel_x_downstream")),
+                ("Y aguas abajo", review.get("open_channel_y_downstream")),
+                ("Tipo de superficie", review.get("open_channel_surface_type")),
+            ]
+        )
+    elif equipment_type == "Inserción":
+        general_rows.extend(
+            [
+                ("Profundidad de inserción", review.get("insertion_depth")),
+                ("Diámetro", review.get("insertion_diameter")),
+            ]
+        )
+
+    st.dataframe(
+        pd.DataFrame(general_rows, columns=["Campo", "Valor"]),
+        hide_index=True,
+        width="stretch",
+    )
+
+
 @st.dialog("Editar revisión")
 def edit_review_dialog(
     review: dict[str, Any],
@@ -418,42 +1009,10 @@ def edit_review_dialog(
             key=f"edit-rectification-equipment-{review_id}",
         )
 
-    is_ultrasonic = st.checkbox(
-        "Es un equipo ultrasónico",
-        value=bool(review.get("is_ultrasonic")),
-        key=f"edit-ultrasonic-{review_id}",
+    equipment_fields = render_equipment_generalities(
+        f"edit-{review_id}",
+        review,
     )
-
-    circumference_mm = None
-    wall_thickness_mm = None
-    transducer_distance_mm = None
-    if is_ultrasonic:
-        u1, u2, u3 = st.columns(3)
-        circumference_mm = u1.number_input(
-            "Circunferencia [mm]",
-            min_value=0.0,
-            value=float(review.get("circumference_mm") or 0),
-            step=0.1,
-            format="%.2f",
-            key=f"edit-circumference-{review_id}",
-        )
-        wall_thickness_mm = u2.number_input(
-            "Espesor [mm]",
-            min_value=0.0,
-            value=float(review.get("wall_thickness_mm") or 0),
-            step=0.1,
-            format="%.2f",
-            key=f"edit-thickness-{review_id}",
-        )
-        transducer_distance_mm = u3.number_input(
-            "Distancia transductores [mm]",
-            min_value=0.0,
-            value=float(review.get("transducer_distance_mm") or 0),
-            step=0.1,
-            format="%.2f",
-            key=f"edit-transducer-{review_id}",
-        )
-
     measurement_quality = st.selectbox(
         "Calidad de medición",
         options=list(QUALITY_VALUES),
@@ -483,6 +1042,19 @@ def edit_review_dialog(
         value=str(review.get("notes") or ""),
         height=90,
         key=f"edit-notes-{review_id}",
+    )
+
+    maintenance_fields = render_maintenance_section(
+        f"edit-{review_id}",
+        review,
+    )
+    data_fields = render_data_section(
+        f"edit-{review_id}",
+        review,
+    )
+    repair_fields = render_repairs_section(
+        f"edit-{review_id}",
+        review,
     )
 
     st.markdown("#### Punto de medición")
@@ -578,13 +1150,18 @@ def edit_review_dialog(
         validation_data = {
             "rectification_status": rectification_status,
             "rectification_equipment": rectification_equipment,
-            "is_ultrasonic": is_ultrasonic,
-            "circumference_mm": circumference_mm,
-            "wall_thickness_mm": wall_thickness_mm,
-            "transducer_distance_mm": transducer_distance_mm,
+            "is_ultrasonic": equipment_fields["is_ultrasonic"],
+            "circumference_mm": equipment_fields["circumference_mm"],
+            "wall_thickness_mm": equipment_fields["wall_thickness_mm"],
+            "transducer_distance_mm": equipment_fields["transducer_distance_mm"],
             "measurement_quality": measurement_quality,
         }
         errors = list(validate_review(validation_data).errors)
+        if (
+            repair_fields.get("repair_spare_part_required")
+            and not repair_fields.get("repair_spare_part_detail")
+        ):
+            errors.append("Indique cuál repuesto particular requiere el equipo.")
 
         measurement_latitude = None
         measurement_longitude = None
@@ -662,12 +1239,6 @@ def edit_review_dialog(
             payload = {
                 "rectification_status": rectification_status,
                 "rectification_equipment": rectification_equipment.strip() or None,
-                "is_ultrasonic": bool(is_ultrasonic),
-                "circumference_mm": circumference_mm if is_ultrasonic else None,
-                "wall_thickness_mm": wall_thickness_mm if is_ultrasonic else None,
-                "transducer_distance_mm": (
-                    transducer_distance_mm if is_ultrasonic else None
-                ),
                 "measurement_quality": measurement_quality,
                 "last_maintenance_date": (
                     last_maintenance_date.isoformat()
@@ -694,6 +1265,10 @@ def edit_review_dialog(
                 "sharepoint_item_id": sharepoint_item_id,
                 "sharepoint_file_name": sharepoint_file_name,
             }
+            payload.update(equipment_fields)
+            payload.update(maintenance_fields)
+            payload.update(data_fields)
+            payload.update(repair_fields)
 
             review_repo.update_review(review_id, payload)
 
@@ -1030,6 +1605,7 @@ if page == "Revisión de equipo":
             st.markdown(f"**Sistema de Abastecimiento:** {selected_system_name}")
         st.markdown(f"**Equipo:** {selected_meter_name or 'Sin nombre registrado'}")
 
+        st.markdown("### CONTROL GENERAL DE LA REVISIÓN")
         rectification_status = st.radio(
             "¿El equipo se ha logrado rectificar con otro equipo de forma simultánea?",
             options=list(RECTIFICATION_VALUES),
@@ -1040,22 +1616,6 @@ if page == "Revisión de equipo":
             rectification_equipment = st.text_input(
                 "¿Con cuál equipo se realizó la rectificación?",
                 placeholder="Ej.: ultrasónico portátil / marca-modelo / código interno",
-            )
-
-        is_ultrasonic = st.checkbox("Es un equipo ultrasónico")
-        circumference_mm = None
-        wall_thickness_mm = None
-        transducer_distance_mm = None
-        if is_ultrasonic:
-            c1, c2, c3 = st.columns(3)
-            circumference_mm = c1.number_input(
-                "Circunferencia [mm]", min_value=0.0, step=0.1, format="%.2f"
-            )
-            wall_thickness_mm = c2.number_input(
-                "Espesor [mm]", min_value=0.0, step=0.1, format="%.2f"
-            )
-            transducer_distance_mm = c3.number_input(
-                "Distancia transductores [mm]", min_value=0.0, step=0.1, format="%.2f"
             )
 
         measurement_quality = st.selectbox(
@@ -1076,7 +1636,12 @@ if page == "Revisión de equipo":
         )
         reviewed_by = st.text_input("Revisado por", placeholder="Nombre o usuario responsable")
 
-        st.markdown("#### Punto de medición puntual")
+        maintenance_fields = render_maintenance_section("new")
+        data_fields = render_data_section("new")
+        repair_fields = render_repairs_section("new")
+        equipment_fields = render_equipment_generalities("new")
+
+        st.markdown("### PUNTO DE MEDICIÓN PUNTUAL")
         register_measurement_point = st.checkbox(
             "Registrar un punto de medición distinto o complementario al macromedidor"
         )
@@ -1105,7 +1670,7 @@ if page == "Revisión de equipo":
                 placeholder="Ej.: válvula, hidrante, cámara o punto aguas abajo",
             )
 
-        st.markdown("#### Gráfico comparativo")
+        st.markdown("### GRÁFICO COMPARATIVO")
         graph_options = [
             "Sin gráfico",
             "Cargar archivo HTML",
@@ -1177,14 +1742,19 @@ if page == "Revisión de equipo":
             data = {
                 "rectification_status": rectification_status,
                 "rectification_equipment": rectification_equipment,
-                "is_ultrasonic": is_ultrasonic,
-                "circumference_mm": circumference_mm,
-                "wall_thickness_mm": wall_thickness_mm,
-                "transducer_distance_mm": transducer_distance_mm,
+                "is_ultrasonic": equipment_fields["is_ultrasonic"],
+                "circumference_mm": equipment_fields["circumference_mm"],
+                "wall_thickness_mm": equipment_fields["wall_thickness_mm"],
+                "transducer_distance_mm": equipment_fields["transducer_distance_mm"],
                 "measurement_quality": measurement_quality,
             }
             validation = validate_review(data)
             errors = list(validation.errors)
+            if (
+                repair_fields.get("repair_spare_part_required")
+                and not repair_fields.get("repair_spare_part_detail")
+            ):
+                errors.append("Indique cuál repuesto particular requiere el equipo.")
 
             measurement_latitude = None
             measurement_longitude = None
@@ -1254,12 +1824,6 @@ if page == "Revisión de equipo":
                             "geodatabase_snapshot": snapshot,
                             "rectification_status": rectification_status,
                             "rectification_equipment": rectification_equipment or None,
-                            "is_ultrasonic": bool(is_ultrasonic),
-                            "circumference_mm": circumference_mm if is_ultrasonic else None,
-                            "wall_thickness_mm": wall_thickness_mm if is_ultrasonic else None,
-                            "transducer_distance_mm": (
-                                transducer_distance_mm if is_ultrasonic else None
-                            ),
                             "measurement_quality": measurement_quality,
                             "graph_source": graph_source,
                             "graph_storage_path": graph_storage_path,
@@ -1282,6 +1846,11 @@ if page == "Revisión de equipo":
                             payload["measurement_location_notes"] = (
                                 measurement_location_notes.strip() or None
                             )
+
+                        payload.update(equipment_fields)
+                        payload.update(maintenance_fields)
+                        payload.update(data_fields)
+                        payload.update(repair_fields)
 
                         saved = review_repo.insert_review(payload)
                         st.success(
@@ -1423,13 +1992,22 @@ elif page == "Ficha e historial":
 
         render_graph_for_review(review, review_repo)
 
+    st.markdown("---")
+    render_review_control_sections(review)
+
     st.markdown("#### Historial del equipo")
     history = pd.DataFrame(reviews)
     wanted = [
         "reviewed_at",
         "measurement_quality",
+        "equipment_type",
         "rectification_status",
-        "is_ultrasonic",
+        "maintenance_gel_date",
+        "maintenance_transducers_alignment_date",
+        "maintenance_internal_download_date",
+        "maintenance_simultaneous_installation_date",
+        "maintenance_scada_working",
+        "maintenance_scada_check_date",
         "last_maintenance_date",
         "graph_source",
         "graph_original_url",

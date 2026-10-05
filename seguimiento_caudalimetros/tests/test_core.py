@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 import pandas as pd
@@ -6,6 +7,7 @@ from src.core import (
     choose_html_attachment,
     determine_key_column,
     determine_key_column_from_frame,
+    maintenance_due_status,
     parse_measurement_coordinates,
     parse_sharepoint_attachment_url,
     snapshot_from_row,
@@ -122,3 +124,46 @@ def test_parse_measurement_coordinates_requires_both_values():
     assert lat is None
     assert lon is None
     assert not result.ok
+
+
+
+def test_maintenance_status_green_before_due_date():
+    kind, label = maintenance_due_status(
+        date(2026, 1, 15),
+        6,
+        today=date(2026, 7, 15),
+    )
+    assert kind == "success"
+    assert "Vigente" in label
+
+
+def test_maintenance_status_red_after_due_date():
+    kind, label = maintenance_due_status(
+        date(2026, 1, 15),
+        6,
+        today=date(2026, 7, 16),
+    )
+    assert kind == "error"
+    assert "Vencido" in label
+
+
+def test_maintenance_status_no_aplica():
+    kind, label = maintenance_due_status(
+        None,
+        6,
+        applicable=False,
+        today=date(2026, 7, 16),
+    )
+    assert kind == "info"
+    assert "No aplica" in label
+
+
+def test_maintenance_status_scada_failure_is_red():
+    kind, label = maintenance_due_status(
+        date(2026, 7, 1),
+        1,
+        condition_ok=False,
+        today=date(2026, 7, 2),
+    )
+    assert kind == "error"
+    assert "Requiere atención" in label
