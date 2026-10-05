@@ -38,8 +38,8 @@ La geodatabase continúa siendo la fuente maestra. Supabase mantiene una copia o
 - Registra revisiones históricas en Supabase sin modificar la geodatabase.
 - Controla rectificación simultánea, calidad de medición y seguimiento histórico.
 - Incorpora secciones de mantenimiento con semáforos automáticos por vencimiento (1, 6 y 12 meses).
-- Registra disponibilidad de datos en Perspective, Vision Client CCO, Vision Client SCADA vr2 y módulo de reportes.
-- Controla reparaciones pendientes con semáforo verde/rojo para señal, calibración, energía, cableado, repuestos y sustituciones.
+- Controla como pendientes de reparación/mantenimiento la visualización en Perspective, Vision Client CCO, Vision Client SCADA vr2 y la descarga desde el módulo de reportes.
+- Controla reparaciones pendientes con semáforo verde/rojo para señal, calibración, energía, cableado, visualización de datos, repuestos y sustituciones.
 - Registra generalidades por tipo de equipo: ultrasónico, electromagnético, canal abierto e inserción.
 - Permite cargar un HTML comparativo y almacenarlo en un bucket privado de Supabase.
 - Permite guardar un vínculo original de Microsoft List / SharePoint y extraer el ID del adjunto cuando el URL contiene `/Attachments/{id}/archivo.html`.
@@ -75,7 +75,13 @@ Si ya ejecutó esa migración y desea incorporar los ajustes posteriores de apli
 
 `migration_20261005_maintenance_tracking_v2.sql`
 
-Los controles de Perspective, Vision Client y reportes se presentan dentro de **Aspectos de reparación o mantenimiento**, aunque siguen registrándose como validaciones Sí/No/Sin verificar + fecha y no utilizan semáforo.
+Los controles de Perspective, Vision Client y reportes se presentan dentro de **Aspectos de reparación o mantenimiento**.
+
+Si ya utilizó la versión anterior de esos controles, ejecute además:
+
+`migration_20261005_data_checks_as_repairs.sql`
+
+Esta migración los convierte a pendientes de corrección con semáforo verde/rojo. Un valor histórico **No** se convierte en **Pendiente** y un valor **Sí** se convierte en **Sin pendiente**. Las columnas antiguas de fecha se conservan únicamente como histórico y dejan de mostrarse en la aplicación.
 
 La aplicación usa una `service_role_key` únicamente del lado servidor. No debe colocarse en código fuente, HTML o JavaScript.
 
