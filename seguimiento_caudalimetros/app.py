@@ -171,6 +171,10 @@ def meter_system(row: pd.Series, system_column: str | None = None) -> str:
     return first_nonempty(
         row,
         [
+            "OBSERVACIO",
+            "OBSERVACION",
+            "Observacio",
+            "Observacion",
             "Sistema_De_Abastecimiento",
             "SISTEMA_DE_ABASTECIMIENTO",
             "Sistema de Abastecimiento",
@@ -193,6 +197,10 @@ def meter_name(row: pd.Series, name_column: str | None = None) -> str:
     return first_nonempty(
         row,
         [
+            "DESCRIPCIO",
+            "DESCRIPCION",
+            "Descripcion",
+            "Descripción",
             "Nombre_Caudalimetro",
             "NOMBRE_CAUDALIMETRO",
             "Nombre del Caudalímetro",
@@ -366,6 +374,10 @@ columns = [str(column) for column in meters.columns]
 system_column = find_column(
     columns,
     [
+        "OBSERVACIO",
+        "OBSERVACION",
+        "Observacio",
+        "Observacion",
         "Sistema_De_Abastecimiento",
         "Sistema de Abastecimiento",
         "SISTEMA_DE_ABASTECIMIENTO",
@@ -380,6 +392,10 @@ system_column = find_column(
 name_column = find_column(
     columns,
     [
+        "DESCRIPCIO",
+        "DESCRIPCION",
+        "Descripcion",
+        "Descripción",
         "Nombre_Caudalimetro",
         "Nombre del Caudalímetro",
         "NOMBRE_CAUDALIMETRO",
@@ -396,7 +412,7 @@ name_column = find_column(
 st.sidebar.markdown("### Buscar equipo")
 search_text = st.sidebar.text_input(
     "Sistema o nombre",
-    placeholder="Ej.: MEA01, Tres Ríos, Guadalupe",
+    placeholder="Ej.: MEA01, Planta Alta Salida",
 )
 
 filtered_meters = meters.copy()
