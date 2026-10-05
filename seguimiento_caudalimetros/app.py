@@ -2284,7 +2284,14 @@ elif page == "Ficha e historial":
     top_map, top_data = st.columns([0.48, 0.52], gap="large")
     with top_map:
         st.markdown("#### Ubicación del equipo")
-        render_meter_map(selected_row, height=390)
+        render_meter_map(
+            selected_row,
+            meters,
+            key_column=key_column,
+            system_column=system_column,
+            name_column=name_column,
+            height=390,
+        )
 
     with top_data:
         st.markdown("#### Atributos de la geodatabase")
