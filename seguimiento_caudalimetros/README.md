@@ -39,10 +39,10 @@ La geodatabase continúa siendo la fuente maestra. Supabase mantiene una copia o
 - Controla rectificación simultánea, equipo utilizado, condición ultrasónica, circunferencia, espesor, distancia de transductores, calidad de medición, último mantenimiento y fallas.
 - Permite cargar un HTML comparativo y almacenarlo en un bucket privado de Supabase.
 - Permite guardar un vínculo original de Microsoft List / SharePoint y extraer el ID del adjunto cuando el URL contiene `/Attachments/{id}/archivo.html`.
-- El vínculo puede complementarse con una copia HTML de visualización en Supabase para abrir el gráfico directamente dentro de la ficha sin descargarlo al escritorio.
+- Los vínculos de SharePoint quedan pendientes de sincronización local; un script abre Microsoft Edge con la sesión normal del usuario, extrae el HTML real y lo copia a Supabase.
 - Permite registrar un punto WGS84 específico de la medición, independiente de la ubicación del macromedidor.
 - Muestra el HTML directamente dentro de la ficha mediante un iframe `sandbox`.
-- Incluye integración opcional con Microsoft List mediante SharePoint REST y Microsoft Entra. No depende del conector de SharePoint de ChatGPT.
+- No requiere Microsoft Entra/App Registration para sincronizar adjuntos SharePoint: usa una sesión local persistente de Microsoft Edge.
 - Incluye diagnóstico separado para SQL, inventario Supabase, revisiones Supabase y Microsoft List.
 
 ## 1. Preparar Supabase
@@ -175,40 +175,83 @@ data_source = "auto"
 
 Usa Supabase si está configurado y, en caso contrario, SQL.
 
-## 6. Microsoft List: vínculo y login Microsoft 365
+## 6. Microsoft List / SharePoint sin Microsoft Entra
 
-En **Vínculo MS List / SharePoint** se conserva el URL original del adjunto HTML. Si SharePoint responde con HTTP 401/403, el aplicativo puede usar una **sesión delegada del usuario**: el usuario inicia sesión directamente en Microsoft y la aplicación descarga el adjunto con los mismos permisos que tenga esa persona.
+Cuando se selecciona **Vínculo MS List / SharePoint**, Streamlit guarda:
 
-El aplicativo no solicita ni almacena la contraseña Microsoft. Usa MSAL Device Code Flow y guarda el token únicamente en la sesión de Streamlit. Al cerrar la sesión del aplicativo el token deja de utilizarse.
+- el vínculo original del adjunto;
+- el ID del elemento de Microsoft List, si está presente en el URL;
+- el nombre del archivo HTML.
 
-Para habilitar ese login se requiere una **App Registration** de Microsoft Entra:
+Streamlit Cloud **no intenta autenticarse contra SharePoint**. El gráfico queda con estado **Pendiente de sincronización local** hasta que se ejecute el sincronizador desde una PC donde el usuario pueda abrir SharePoint normalmente.
 
-1. Crear/usar una aplicación en el tenant institucional.
-2. Copiar su **Application (client) ID**.
-3. En **Authentication → Advanced settings**, habilitar **Allow public client flows**.
-4. Agregar el permiso delegado de SharePoint **AllSites.Read** para leer adjuntos mediante SharePoint REST.
-5. Aplicar el consentimiento que exija la política del tenant.
+### Primera instalación local
 
-En Streamlit Secrets:
+Desde la carpeta `seguimiento_caudalimetros`:
 
-```toml
-[sharepoint]
-site_url = "https://intranetaya.sharepoint.com/sites/MejoramientodeSistemas769"
-list_title = "Seguimiento de Detección de Fugas GAM"
-tenant_id = "TU_TENANT_ID"
-client_id = "TU_APPLICATION_CLIENT_ID"
-client_secret = ""
+```cmd
+python -m pip install -r requirements.txt
 ```
 
-`client_secret` no es necesario para el login de usuario. Solo se utiliza si se configura adicionalmente un modo app-only.
+El sincronizador usa Microsoft Edge instalado en Windows mediante Playwright. No requiere `client_id`, `client_secret`, App Registration ni permisos administrativos de Microsoft Entra.
 
-Cuando el usuario pega un vínculo como `/Attachments/2013/grafico_caudals.html?web=1`, el aplicativo extrae el ID y nombre del adjunto, intenta acceso directo y, si SharePoint exige autenticación, utiliza el token del usuario para llamar el endpoint REST `AttachmentFiles('archivo')/$value`. El HTML real se copia al bucket privado de Supabase y se renderiza en la ficha.
+### Sincronizar vínculos pendientes
+
+```cmd
+python sincronizar_html_sharepoint.py
+```
+
+El proceso:
+
+1. consulta en Supabase las revisiones con `graph_source = sharepoint_link` que aún no tienen `graph_storage_path`;
+2. abre Microsoft Edge con un perfil local persistente;
+3. si Microsoft solicita autenticación, el usuario inicia sesión y completa MFA directamente en Edge;
+4. usa esa misma sesión del navegador para obtener el adjunto HTML real desde SharePoint;
+5. valida el HTML;
+6. lo sube al bucket privado `caudalimetros-graficos`;
+7. actualiza `graph_storage_path` de la revisión;
+8. la ficha de Streamlit comienza a mostrar el gráfico desde Supabase.
+
+El perfil de navegador se guarda fuera del repositorio en el perfil local del usuario, normalmente bajo:
+
+```text
+%LOCALAPPDATA%\AyA\SeguimientoCaudalimetros\edge_profile
+```
+
+No se guarda la contraseña Microsoft en Python ni en Supabase.
+
+### Sincronizar o reparar un caso específico
+
+Si el vínculo contiene, por ejemplo, `Attachments/2013/grafico_caudals.html`:
+
+```cmd
+python sincronizar_html_sharepoint.py --item-id 2013
+```
+
+Ese modo procesa el caso aunque ya tenga una referencia previa de HTML y es útil para reparar casos como Pizote.
+
+Para volver a procesar todos los vínculos SharePoint:
+
+```cmd
+python sincronizar_html_sharepoint.py --refresh
+```
+
+En la ficha también existe **Marcar para resincronización local**, que limpia la referencia de caché para que el caso vuelva a entrar en la cola normal.
+
+### Sincronizar inventario y HTML en un solo paso
+
+En Windows puede ejecutar:
+
+```cmd
+sincronizar_todo.bat
+```
+
+Primero sincroniza SQL AyA → Supabase y después SharePoint → Supabase.
 
 Antes de utilizar vínculos o coordenadas de medición puntual en una instalación existente, ejecute en Supabase SQL Editor:
 
 `migration_20261005_sharepoint_link_location.sql`
 
-El aplicativo también puede funcionar sin Microsoft List mediante carga manual del HTML.
 
 ## 7. Instalación local
 
