@@ -64,6 +64,22 @@ class SupabaseMeterRepository:
                 break
             start += page_size
 
+        # Cada ejecución del sincronizador asigna el mismo synced_at a todo el lote.
+        # Conservamos únicamente el lote más reciente para evitar que registros
+        # obsoletos de sincronizaciones anteriores reaparezcan en la aplicación.
+        sync_values = [
+            str(item.get("synced_at") or "").strip()
+            for item in rows
+            if str(item.get("synced_at") or "").strip()
+        ]
+        if sync_values:
+            latest_sync = max(sync_values)
+            rows = [
+                item
+                for item in rows
+                if str(item.get("synced_at") or "").strip() == latest_sync
+            ]
+
         expanded: list[dict[str, Any]] = []
         for item in rows:
             attributes = dict(item.get("attributes") or {})
