@@ -34,6 +34,7 @@ create table if not exists public.caudalimetro_revisiones (
     measurement_quality text not null,
 
     graph_source text not null default 'none',
+    graph_format text not null default 'html',
     graph_storage_path text,
     graph_original_url text,
     sharepoint_item_id bigint,
@@ -103,6 +104,8 @@ create table if not exists public.caudalimetro_revisiones (
       check (measurement_quality in ('Excelente', 'Buena', 'Regular', 'Mala')),
     constraint caudalimetro_graph_source_chk
       check (graph_source in ('none', 'manual', 'sharepoint', 'sharepoint_link')),
+    constraint caudalimetro_graph_format_chk
+      check (graph_format in ('html', 'plotly_json_gzip')),
     constraint caudalimetro_equipment_type_chk
       check (
         equipment_type in (
@@ -137,6 +140,9 @@ alter table public.caudalimetro_revisiones
 
 alter table public.caudalimetro_revisiones
     add column if not exists measurement_location_notes text;
+
+alter table public.caudalimetro_revisiones
+    add column if not exists graph_format text not null default 'html';
 
 alter table public.caudalimetro_revisiones
     add column if not exists maintenance_gel_applicable boolean not null default true,
@@ -191,6 +197,13 @@ alter table public.caudalimetro_revisiones
 alter table public.caudalimetro_revisiones
     add constraint caudalimetro_graph_source_chk
       check (graph_source in ('none', 'manual', 'sharepoint', 'sharepoint_link'));
+
+alter table public.caudalimetro_revisiones
+    drop constraint if exists caudalimetro_graph_format_chk;
+
+alter table public.caudalimetro_revisiones
+    add constraint caudalimetro_graph_format_chk
+      check (graph_format in ('html', 'plotly_json_gzip'));
 
 alter table public.caudalimetro_revisiones
     drop constraint if exists caudalimetro_equipment_type_chk;
