@@ -163,6 +163,17 @@ class SupabaseReviewRepository:
         rows = self.list_reviews(equipment_key=equipment_key, limit=1)
         return rows[0] if rows else None
 
+    def get_review_by_id(self, review_id: str) -> dict[str, Any] | None:
+        result = (
+            self.client.table(self.table_name)
+            .select("*")
+            .eq("id", str(review_id))
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(result, "data", None) or []
+        return rows[0] if rows else None
+
     def list_sharepoint_link_reviews(
         self,
         pending_only: bool = True,
