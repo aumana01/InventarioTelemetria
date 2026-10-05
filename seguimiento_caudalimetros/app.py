@@ -321,7 +321,7 @@ def render_satellite_point_map(
     )
 
 
-def render_meter_map(row: pd.Series) -> None:
+def render_meter_map(row: pd.Series, height: int = 500) -> None:
     lat = row.get("LATITUD")
     lon = row.get("LONGITUD")
     if pd.isna(lat) or pd.isna(lon):
@@ -333,7 +333,7 @@ def render_meter_map(row: pd.Series) -> None:
         latitude=float(lat),
         longitude=float(lon),
         label=label,
-        height=500,
+        height=height,
         zoom=18,
     )
     st.caption(
@@ -907,7 +907,7 @@ def render_equipment_generalities(
     return payload
 
 
-def render_review_control_sections(review: dict[str, Any]) -> None:
+def render_review_maintenance_status(review: dict[str, Any]) -> None:
     st.markdown("### Estado de mantenimiento")
     equipment_type = str(review.get("equipment_type") or "No definido")
     maintenance_rows = [
@@ -975,6 +975,8 @@ def render_review_control_sections(review: dict[str, Any]) -> None:
                 condition_ok=condition_ok,
             )
 
+
+def render_review_repairs_status(review: dict[str, Any]) -> None:
     st.markdown("### Aspectos de reparación o mantenimiento")
     repair_rows = [
         ("Señal", "repair_signal_pending"),
@@ -1009,7 +1011,10 @@ def render_review_control_sections(review: dict[str, Any]) -> None:
             "error" if spare else "success",
         )
 
+
+def render_review_generalities(review: dict[str, Any]) -> None:
     st.markdown("### Generalidades del equipo")
+    equipment_type = str(review.get("equipment_type") or "No definido")
     general_rows = [
         ("Tipo de equipo", equipment_type),
         ("Número de serie del equipo", review.get("equipment_serial")),
@@ -1057,6 +1062,12 @@ def render_review_control_sections(review: dict[str, Any]) -> None:
         hide_index=True,
         width="stretch",
     )
+
+
+def render_review_control_sections(review: dict[str, Any]) -> None:
+    render_review_maintenance_status(review)
+    render_review_repairs_status(review)
+    render_review_generalities(review)
 
 
 @st.dialog("Editar revisión")
@@ -1689,27 +1700,34 @@ st.caption(
 
 
 if page == "Revisión de equipo":
-    left, right = st.columns([0.44, 0.56], gap="large")
+    st.subheader("Revisión de equipo")
 
-    with left:
-        st.subheader("Ubicación del equipo")
-        render_meter_map(selected_row)
-        with st.expander("Ver atributos de la geodatabase", expanded=True):
-            readonly_snapshot(snapshot)
+    # Referencia del activo: mapa y atributos siempre visibles en la parte superior.
+    top_map, top_data = st.columns([0.48, 0.52], gap="large")
+    with top_map:
+        st.markdown("#### Ubicación del equipo")
+        render_meter_map(selected_row, height=390)
 
-    with right:
-        st.subheader("Formulario de revisión")
-        if selected_system_name:
-            st.markdown(f"**Sistema de Abastecimiento:** {selected_system_name}")
-        st.markdown(f"**Equipo:** {selected_meter_name or 'Sin nombre registrado'}")
+    with top_data:
+        st.markdown("#### Atributos de la geodatabase")
+        readonly_snapshot(snapshot, title="Datos del inventario")
 
+    st.markdown("---")
+    st.subheader("Formulario de revisión")
+    if selected_system_name:
+        st.caption(f"Sistema de Abastecimiento: {selected_system_name}")
+    st.caption(f"Equipo: {selected_meter_name or 'Sin nombre registrado'}")
+
+    form_left, form_right = st.columns(2, gap="large")
+
+    with form_left:
         st.markdown("### CONTROL GENERAL DE LA REVISIÓN")
         control_fields = render_control_general_equipment("new")
 
         rectification_status = st.radio(
             "¿El equipo se ha logrado rectificar con otro equipo de forma simultánea?",
             options=list(RECTIFICATION_VALUES),
-            horizontal=False,
+            horizontal=True,
         )
         rectification_equipment = ""
         if rectification_status == "Sí, con medición simultánea":
@@ -1718,23 +1736,28 @@ if page == "Revisión de equipo":
                 placeholder="Ej.: ultrasónico portátil / marca-modelo / código interno",
             )
 
-        measurement_quality = st.selectbox(
+        g1, g2 = st.columns(2)
+        measurement_quality = g1.selectbox(
             "Calidad de medición",
             options=list(QUALITY_VALUES),
             index=1,
         )
-
-        last_maintenance_date = st.date_input(
+        last_maintenance_date = g2.date_input(
             "Fecha del último mantenimiento / revisión",
             value=None,
             max_value=date.today(),
         )
-        reviewed_by = st.text_input("Revisado por", placeholder="Nombre o usuario responsable")
+        reviewed_by = st.text_input(
+            "Revisado por",
+            placeholder="Nombre o usuario responsable",
+        )
 
         maintenance_fields = render_maintenance_section(
             "new",
             equipment_type=control_fields["equipment_type"],
         )
+
+    with form_right:
         repair_fields = render_repairs_section("new")
         equipment_fields = render_equipment_generalities(
             "new",
@@ -1776,7 +1799,11 @@ if page == "Revisión de equipo":
             "Cargar archivo HTML",
             "Vínculo MS List / SharePoint",
         ]
-        graph_option = st.radio("Origen del gráfico", graph_options, horizontal=False)
+        graph_option = st.radio(
+            "Origen del gráfico",
+            graph_options,
+            horizontal=True,
+        )
 
         uploaded_html = None
         sharepoint_url = ""
@@ -1787,10 +1814,16 @@ if page == "Revisión de equipo":
             uploaded_html = st.file_uploader(
                 "Archivo HTML de comparación",
                 type=["html", "htm"],
-                help="Se almacenará en un bucket privado de Supabase y se mostrará dentro de la ficha.",
+                help=(
+                    "Se almacenará en un bucket privado de Supabase "
+                    "y se mostrará dentro de la ficha."
+                ),
             )
             if uploaded_html:
-                validation = validate_html_file(uploaded_html.name, uploaded_html.getvalue())
+                validation = validate_html_file(
+                    uploaded_html.name,
+                    uploaded_html.getvalue(),
+                )
                 if validation.ok:
                     status_badge("HTML válido para carga", "success")
                 else:
@@ -1800,7 +1833,10 @@ if page == "Revisión de equipo":
         elif graph_option == "Vínculo MS List / SharePoint":
             sharepoint_url = st.text_input(
                 "Hipervínculo del archivo HTML en Microsoft List / SharePoint",
-                placeholder="https://...sharepoint.com/.../Attachments/2324/grafico.html?web=1",
+                placeholder=(
+                    "https://...sharepoint.com/.../Attachments/"
+                    "2324/grafico.html?web=1"
+                ),
             )
             parsed_link = parse_sharepoint_attachment_url(sharepoint_url)
             if sharepoint_url.strip():
@@ -1808,163 +1844,168 @@ if page == "Revisión de equipo":
                     st.warning(
                         "El vínculo debe ser HTTPS y pertenecer a un dominio *.sharepoint.com."
                     )
+                elif parsed_link.get("item_id"):
+                    st.caption(
+                        f"ID de Microsoft List detectado: {parsed_link['item_id']} · "
+                        f"Archivo: {parsed_link.get('file_name') or 'no identificado'}"
+                    )
                 else:
-                    if parsed_link.get("item_id"):
-                        st.caption(
-                            f"ID de Microsoft List detectado: {parsed_link['item_id']} · "
-                            f"Archivo: {parsed_link.get('file_name') or 'no identificado'}"
-                        )
-                    else:
-                        st.caption(
-                            "El vínculo se guardará, aunque no se pudo extraer automáticamente "
-                            "el ID del elemento."
-                        )
+                    st.caption(
+                        "El vínculo se guardará, aunque no se pudo extraer "
+                        "automáticamente el ID del elemento."
+                    )
 
             st.info(
                 "El vínculo se guardará y el agente de sincronización importará "
-                "automáticamente el HTML desde SharePoint hacia Supabase."
+                "automáticamente el gráfico desde SharePoint hacia Supabase."
             )
 
         notes = st.text_area("Observaciones adicionales", height=90)
 
-        save_disabled = not settings.supabase_configured
-        if save_disabled:
-            st.warning(
-                "Supabase no está configurado. El formulario puede revisarse, pero no se habilita el guardado."
-            )
+    st.markdown("---")
+    save_disabled = not settings.supabase_configured
+    if save_disabled:
+        st.warning(
+            "Supabase no está configurado. El formulario puede revisarse, "
+            "pero no se habilita el guardado."
+        )
 
-        if st.button(
-            "Guardar revisión",
-            type="primary",
-            use_container_width=True,
-            disabled=save_disabled,
+    if st.button(
+        "Guardar revisión",
+        type="primary",
+        use_container_width=True,
+        disabled=save_disabled,
+    ):
+        data = {
+            "rectification_status": rectification_status,
+            "rectification_equipment": rectification_equipment,
+            "is_ultrasonic": equipment_fields["is_ultrasonic"],
+            "circumference_mm": equipment_fields["circumference_mm"],
+            "wall_thickness_mm": equipment_fields["wall_thickness_mm"],
+            "transducer_distance_mm": equipment_fields["transducer_distance_mm"],
+            "measurement_quality": measurement_quality,
+        }
+        validation = validate_review(data)
+        errors = list(validation.errors)
+        if control_fields.get("equipment_type") == "No definido":
+            errors.append("Seleccione el tipo de equipo.")
+        if (
+            repair_fields.get("repair_spare_part_required")
+            and not repair_fields.get("repair_spare_part_detail")
         ):
-            data = {
-                "rectification_status": rectification_status,
-                "rectification_equipment": rectification_equipment,
-                "is_ultrasonic": equipment_fields["is_ultrasonic"],
-                "circumference_mm": equipment_fields["circumference_mm"],
-                "wall_thickness_mm": equipment_fields["wall_thickness_mm"],
-                "transducer_distance_mm": equipment_fields["transducer_distance_mm"],
-                "measurement_quality": measurement_quality,
-            }
-            validation = validate_review(data)
-            errors = list(validation.errors)
-            if control_fields.get("equipment_type") == "No definido":
-                errors.append("Seleccione el tipo de equipo.")
-            if (
-                repair_fields.get("repair_spare_part_required")
-                and not repair_fields.get("repair_spare_part_detail")
-            ):
-                errors.append("Indique cuál repuesto particular requiere el equipo.")
+            errors.append("Indique cuál repuesto particular requiere el equipo.")
 
-            measurement_latitude = None
-            measurement_longitude = None
-            if register_measurement_point:
-                (
-                    measurement_latitude,
-                    measurement_longitude,
-                    coordinate_validation,
-                ) = parse_measurement_coordinates(
-                    measurement_latitude_text,
-                    measurement_longitude_text,
-                )
-                errors.extend(coordinate_validation.errors)
+        measurement_latitude = None
+        measurement_longitude = None
+        if register_measurement_point:
+            (
+                measurement_latitude,
+                measurement_longitude,
+                coordinate_validation,
+            ) = parse_measurement_coordinates(
+                measurement_latitude_text,
+                measurement_longitude_text,
+            )
+            errors.extend(coordinate_validation.errors)
 
-            graph_source = "none"
-            graph_storage_path = None
+        graph_source = "none"
+        graph_storage_path = None
 
-            if graph_option == "Cargar archivo HTML":
-                if uploaded_html is None:
-                    errors.append("Seleccione un archivo HTML para el gráfico comparativo.")
-                else:
-                    html_validation = validate_html_file(
-                        uploaded_html.name, uploaded_html.getvalue()
-                    )
-                    errors.extend(html_validation.errors)
-                    graph_source = "manual"
-
-            elif graph_option == "Vínculo MS List / SharePoint":
-                parsed_link = parse_sharepoint_attachment_url(sharepoint_url)
-                if not sharepoint_url.strip():
-                    errors.append("Ingrese el hipervínculo del archivo HTML en Microsoft List.")
-                elif parsed_link is None:
-                    errors.append(
-                        "El hipervínculo debe ser HTTPS y pertenecer a un dominio *.sharepoint.com."
-                    )
-                else:
-                    graph_source = "sharepoint_link"
-                    sharepoint_item_id = parsed_link.get("item_id")
-                    sharepoint_file_name = parsed_link.get("file_name")
-
-            if errors:
-                for error in errors:
-                    st.error(error)
+        if graph_option == "Cargar archivo HTML":
+            if uploaded_html is None:
+                errors.append("Seleccione un archivo HTML para el gráfico comparativo.")
             else:
-                review_repo = get_review_repo()
-                if review_repo is None:
-                    st.error("Supabase no está configurado.")
-                else:
-                    try:
-                        if graph_source == "manual" and uploaded_html is not None:
-                            graph_storage_path = review_repo.upload_html(
-                                equipment_key=equipment_key,
-                                filename=uploaded_html.name,
-                                content=uploaded_html.getvalue(),
-                            )
+                html_validation = validate_html_file(
+                    uploaded_html.name,
+                    uploaded_html.getvalue(),
+                )
+                errors.extend(html_validation.errors)
+                graph_source = "manual"
 
+        elif graph_option == "Vínculo MS List / SharePoint":
+            parsed_link = parse_sharepoint_attachment_url(sharepoint_url)
+            if not sharepoint_url.strip():
+                errors.append(
+                    "Ingrese el hipervínculo del archivo HTML en Microsoft List."
+                )
+            elif parsed_link is None:
+                errors.append(
+                    "El hipervínculo debe ser HTTPS y pertenecer "
+                    "a un dominio *.sharepoint.com."
+                )
+            else:
+                graph_source = "sharepoint_link"
+                sharepoint_item_id = parsed_link.get("item_id")
+                sharepoint_file_name = parsed_link.get("file_name")
 
-                        payload = {
-                            "equipment_key": equipment_key,
-                            "equipment_label": meter_label(
-                                selected_row,
-                                key_column,
-                                system_column,
-                                name_column,
-                            ),
-                            "sql_key_field": key_column,
-                            "geodatabase_snapshot": snapshot,
-                            "rectification_status": rectification_status,
-                            "rectification_equipment": rectification_equipment or None,
-                            "measurement_quality": measurement_quality,
-                            "graph_source": graph_source,
-                            "graph_format": "html",
-                            "graph_storage_path": graph_storage_path,
-                            "sharepoint_item_id": sharepoint_item_id,
-                            "sharepoint_file_name": sharepoint_file_name,
-                            "last_maintenance_date": (
-                                last_maintenance_date.isoformat()
-                                if last_maintenance_date
-                                else None
-                            ),
-                            "notes": notes.strip() or None,
-                            "reviewed_by": reviewed_by.strip() or None,
-                        }
-                        if graph_source == "sharepoint_link":
-                            payload["graph_original_url"] = sharepoint_url.strip()
-                        if register_measurement_point:
-                            payload["measurement_latitude"] = measurement_latitude
-                            payload["measurement_longitude"] = measurement_longitude
-                            payload["measurement_location_notes"] = (
-                                measurement_location_notes.strip() or None
-                            )
-
-                        payload.update(control_fields)
-                        payload.update(equipment_fields)
-                        payload.update(maintenance_fields)
-                        payload.update(repair_fields)
-
-                        saved = review_repo.insert_review(payload)
-                        st.success(
-                            f"Revisión guardada correctamente. ID: {saved.get('id', 'registrado')}"
+        if errors:
+            for error in errors:
+                st.error(error)
+        else:
+            review_repo = get_review_repo()
+            if review_repo is None:
+                st.error("Supabase no está configurado.")
+            else:
+                try:
+                    if graph_source == "manual" and uploaded_html is not None:
+                        graph_storage_path = review_repo.upload_html(
+                            equipment_key=equipment_key,
+                            filename=uploaded_html.name,
+                            content=uploaded_html.getvalue(),
                         )
-                        if graph_source == "sharepoint_link":
-                            st.info(
-                                "Vínculo SharePoint guardado. El agente lo importará "
-                                "automáticamente a Supabase."
-                            )
-                    except Exception as exc:
-                        st.error(f"No fue posible guardar la revisión: {exc}")
+
+                    payload = {
+                        "equipment_key": equipment_key,
+                        "equipment_label": meter_label(
+                            selected_row,
+                            key_column,
+                            system_column,
+                            name_column,
+                        ),
+                        "sql_key_field": key_column,
+                        "geodatabase_snapshot": snapshot,
+                        "rectification_status": rectification_status,
+                        "rectification_equipment": rectification_equipment or None,
+                        "measurement_quality": measurement_quality,
+                        "graph_source": graph_source,
+                        "graph_format": "html",
+                        "graph_storage_path": graph_storage_path,
+                        "sharepoint_item_id": sharepoint_item_id,
+                        "sharepoint_file_name": sharepoint_file_name,
+                        "last_maintenance_date": (
+                            last_maintenance_date.isoformat()
+                            if last_maintenance_date
+                            else None
+                        ),
+                        "notes": notes.strip() or None,
+                        "reviewed_by": reviewed_by.strip() or None,
+                    }
+                    if graph_source == "sharepoint_link":
+                        payload["graph_original_url"] = sharepoint_url.strip()
+                    if register_measurement_point:
+                        payload["measurement_latitude"] = measurement_latitude
+                        payload["measurement_longitude"] = measurement_longitude
+                        payload["measurement_location_notes"] = (
+                            measurement_location_notes.strip() or None
+                        )
+
+                    payload.update(control_fields)
+                    payload.update(equipment_fields)
+                    payload.update(maintenance_fields)
+                    payload.update(repair_fields)
+
+                    saved = review_repo.insert_review(payload)
+                    st.success(
+                        "Revisión guardada correctamente. "
+                        f"ID: {saved.get('id', 'registrado')}"
+                    )
+                    if graph_source == "sharepoint_link":
+                        st.info(
+                            "Vínculo SharePoint guardado. El agente lo importará "
+                            "automáticamente a Supabase."
+                        )
+                except Exception as exc:
+                    st.error(f"No fue posible guardar la revisión: {exc}")
 
 
 elif page == "Ficha e historial":
@@ -2008,7 +2049,7 @@ elif page == "Ficha e historial":
     )
     review = reviews[selected_review_index]
 
-    action_edit, action_delete, action_space = st.columns([0.22, 0.22, 0.56])
+    action_edit, action_delete, action_space = st.columns([0.20, 0.20, 0.60])
     with action_edit:
         if st.button(
             "✏️ Editar registro",
@@ -2026,38 +2067,34 @@ elif page == "Ficha e historial":
 
     review_summary(review)
 
-    c1, c2 = st.columns([0.48, 0.52], gap="large")
-    with c1:
-        st.markdown("#### Ubicación")
-        render_meter_map(selected_row)
+    # Misma cabecera visual que la vista de captura.
+    top_map, top_data = st.columns([0.48, 0.52], gap="large")
+    with top_map:
+        st.markdown("#### Ubicación del equipo")
+        render_meter_map(selected_row, height=390)
 
-        measurement_latitude = review.get("measurement_latitude")
-        measurement_longitude = review.get("measurement_longitude")
-        if measurement_latitude is not None and measurement_longitude is not None:
-            st.markdown("**Punto puntual de medición registrado en esta revisión**")
-            render_measurement_point_map(
-                float(measurement_latitude),
-                float(measurement_longitude),
-            )
-            if review.get("measurement_location_notes"):
-                st.caption(str(review.get("measurement_location_notes")))
+    with top_data:
+        st.markdown("#### Atributos de la geodatabase")
+        readonly_snapshot(
+            review.get("geodatabase_snapshot") or snapshot,
+            title="Datos guardados con la revisión",
+        )
 
-        with st.expander("Atributos de la geodatabase guardados con la revisión", expanded=True):
-            readonly_snapshot(review.get("geodatabase_snapshot") or snapshot)
+    st.markdown("---")
+    detail_col, control_col = st.columns(2, gap="large")
 
-        st.markdown("#### Detalle técnico")
+    with detail_col:
+        st.markdown("### Detalle de la revisión")
         detail_rows = [
             ("Rectificación", review.get("rectification_status")),
             ("Equipo usado para rectificar", review.get("rectification_equipment")),
-            ("Equipo ultrasónico", "Sí" if review.get("is_ultrasonic") else "No"),
-            ("Circunferencia [mm]", review.get("circumference_mm")),
-            ("Espesor [mm]", review.get("wall_thickness_mm")),
-            ("Distancia de transductores [mm]", review.get("transducer_distance_mm")),
+            ("Tipo de equipo", review.get("equipment_type")),
+            ("Número de serie", review.get("equipment_serial")),
             ("Calidad", review.get("measurement_quality")),
-            ("Latitud punto de medición", review.get("measurement_latitude")),
-            ("Longitud punto de medición", review.get("measurement_longitude")),
-            ("Referencia punto de medición", review.get("measurement_location_notes")),
-            ("Último mantenimiento / revisión", review.get("last_maintenance_date")),
+            (
+                "Último mantenimiento / revisión",
+                review.get("last_maintenance_date"),
+            ),
             ("Revisado por", review.get("reviewed_by")),
         ]
         st.dataframe(
@@ -2065,18 +2102,42 @@ elif page == "Ficha e historial":
             hide_index=True,
             width="stretch",
         )
+
         if review.get("notes"):
             st.markdown("**Observaciones adicionales**")
             st.write(review.get("notes"))
 
-    with c2:
-        st.markdown("#### Gráfico comparativo de mediciones")
+        measurement_latitude = review.get("measurement_latitude")
+        measurement_longitude = review.get("measurement_longitude")
+        if measurement_latitude is not None and measurement_longitude is not None:
+            st.markdown("### Punto puntual de medición")
+            render_measurement_point_map(
+                float(measurement_latitude),
+                float(measurement_longitude),
+            )
+            if review.get("measurement_location_notes"):
+                st.caption(str(review.get("measurement_location_notes")))
 
-        if review.get("graph_source") == "sharepoint_link" and review.get("graph_original_url"):
-            cached_path = review.get("graph_storage_path")
+        render_review_maintenance_status(review)
 
-            if cached_path:
+    with control_col:
+        render_review_repairs_status(review)
+        render_review_generalities(review)
+
+    st.markdown("---")
+    st.markdown("### Gráfico comparativo de mediciones")
+
+    if (
+        review.get("graph_source") == "sharepoint_link"
+        and review.get("graph_original_url")
+    ):
+        cached_path = review.get("graph_storage_path")
+
+        if cached_path:
+            sync_left, sync_right = st.columns([0.72, 0.28])
+            with sync_left:
                 st.success("Estado del gráfico: sincronizado.")
+            with sync_right:
                 if st.button(
                     "Solicitar nueva sincronización",
                     key=f"resync-sharepoint-{review.get('id')}",
@@ -2088,16 +2149,13 @@ elif page == "Ficha e historial":
                         st.rerun()
                     except Exception as exc:
                         st.error(f"No fue posible solicitar la sincronización: {exc}")
-            else:
-                st.info("Estado del gráfico: pendiente de importación automática.")
+        else:
+            st.info("Estado del gráfico: pendiente de importación automática.")
 
-
-        render_graph_for_review(review, review_repo)
+    render_graph_for_review(review, review_repo)
 
     st.markdown("---")
-    render_review_control_sections(review)
-
-    st.markdown("#### Historial del equipo")
+    st.markdown("### Historial del equipo")
     history = pd.DataFrame(reviews)
     wanted = [
         "reviewed_at",
@@ -2117,6 +2175,7 @@ elif page == "Ficha e historial":
         "maintenance_solar_panel_cleaning_date",
         "maintenance_scada_working",
         "maintenance_scada_check_date",
+        "repair_software_firmware_pending",
         "repair_perspective_pending",
         "repair_vision_cco_pending",
         "repair_vision_scada_vr2_pending",
@@ -2128,7 +2187,7 @@ elif page == "Ficha e historial":
         "measurement_longitude",
         "reviewed_by",
     ]
-    existing = [c for c in wanted if c in history.columns]
+    existing = [column for column in wanted if column in history.columns]
     st.dataframe(history[existing], hide_index=True, width="stretch")
 
 
