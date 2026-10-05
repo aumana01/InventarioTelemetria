@@ -357,217 +357,24 @@ def render_satellite_point_map(
     )
 
 
-def render_meter_map(
-    row: pd.Series,
-    inventory: pd.DataFrame | None = None,
-    *,
-    key_column: str | None = None,
-    system_column: str | None = None,
-    name_column: str | None = None,
-    height: int = 500,
-) -> None:
+def render_meter_map(row: pd.Series, height: int = 500) -> None:
     lat = row.get("LATITUD")
     lon = row.get("LONGITUD")
     if pd.isna(lat) or pd.isna(lon):
         st.warning("El punto seleccionado no tiene coordenadas WGS84 utilizables.")
         return
 
-    selected_lat = float(lat)
-    selected_lon = float(lon)
-    selected_key = str(row.get(key_column, "")) if key_column else ""
-    selected_label = meter_label(
-        row,
-        key_column or "",
-        system_column,
-        name_column,
-    ) if key_column else (meter_name(row, name_column) or "Caudalímetro")
-
-    fmap = folium.Map(
-        location=[selected_lat, selected_lon],
-        zoom_start=17,
-        tiles=None,
-        control_scale=True,
-        prefer_canvas=True,
-    )
-
-    folium.TileLayer(
-        tiles=ESRI_WORLD_IMAGERY,
-        attr="Esri, Maxar, Earthstar Geographics, and the GIS User Community",
-        name="Esri World Imagery",
-        overlay=False,
-        control=False,
-        max_zoom=20,
-    ).add_to(fmap)
-
-    if inventory is not None and not inventory.empty:
-        for _, meter in inventory.iterrows():
-            meter_lat = meter.get("LATITUD")
-            meter_lon = meter.get("LONGITUD")
-            if pd.isna(meter_lat) or pd.isna(meter_lon):
-                continue
-
-            meter_key = str(meter.get(key_column, "")) if key_column else ""
-            is_selected = bool(
-                key_column
-                and selected_key
-                and meter_key == selected_key
-            )
-            label = (
-                meter_label(
-                    meter,
-                    key_column or "",
-                    system_column,
-                    name_column,
-                )
-                if key_column
-                else (meter_name(meter, name_column) or "Caudalímetro")
-            )
-
-            folium.CircleMarker(
-                location=[float(meter_lat), float(meter_lon)],
-                radius=8 if is_selected else 4,
-                color="#FFFFFF" if is_selected else "#007AFF",
-                weight=3 if is_selected else 1,
-                opacity=1.0 if is_selected else 0.38,
-                fill=True,
-                fill_color="#007AFF",
-                fill_opacity=1.0 if is_selected else 0.28,
-                tooltip=folium.Tooltip(
-                    html.escape(label),
-                    permanent=is_selected,
-                    sticky=not is_selected,
-                    direction="top",
-                    offset=(0, -5),
-                    style=(
-                        "background-color: rgba(20,28,38,0.92);"
-                        "color: #ffffff;"
-                        "font-size: 12px;"
-                        "font-weight: 700;"
-                        "line-height: 1.15;"
-                        "padding: 4px 8px;"
-                        "border: 1px solid rgba(255,255,255,0.92);"
-                        "border-radius: 6px;"
-                        "box-shadow: 0 2px 6px rgba(0,0,0,0.35);"
-                        "white-space: nowrap;"
-                    ),
-                ),
-            ).add_to(fmap)
-    else:
-        folium.CircleMarker(
-            location=[selected_lat, selected_lon],
-            radius=8,
-            color="#FFFFFF",
-            weight=3,
-            opacity=1.0,
-            fill=True,
-            fill_color="#007AFF",
-            fill_opacity=1.0,
-            tooltip=folium.Tooltip(
-                html.escape(selected_label),
-                permanent=True,
-                sticky=False,
-                direction="top",
-                offset=(0, -5),
-            ),
-        ).add_to(fmap)
-
-    st_folium(
-        fmap,
-        width=None,
+    label = meter_name(row) or "Caudalímetro"
+    render_satellite_point_map(
+        latitude=float(lat),
+        longitude=float(lon),
+        label=label,
         height=height,
-        use_container_width=True,
-        returned_objects=[],
-        key=f"inventory-map-{selected_key}-{selected_lat:.6f}-{selected_lon:.6f}",
+        zoom=18,
     )
     st.caption(
-        f"{selected_label} · WGS84: {selected_lat:.6f}, {selected_lon:.6f} · "
-        "Los demás equipos se muestran con transparencia."
-    )
-
-
-def render_inventory_overview_map(
-    inventory: pd.DataFrame,
-    *,
-    key_column: str,
-    system_column: str | None = None,
-    name_column: str | None = None,
-    height: int = 520,
-) -> None:
-    valid_points: list[tuple[float, float]] = []
-
-    fmap = folium.Map(
-        location=[9.94, -84.08],
-        zoom_start=10,
-        tiles=None,
-        control_scale=True,
-        prefer_canvas=True,
-    )
-
-    folium.TileLayer(
-        tiles=ESRI_WORLD_IMAGERY,
-        attr="Esri, Maxar, Earthstar Geographics, and the GIS User Community",
-        name="Esri World Imagery",
-        overlay=False,
-        control=False,
-        max_zoom=20,
-    ).add_to(fmap)
-
-    for _, meter in inventory.iterrows():
-        meter_lat = meter.get("LATITUD")
-        meter_lon = meter.get("LONGITUD")
-        if pd.isna(meter_lat) or pd.isna(meter_lon):
-            continue
-
-        lat = float(meter_lat)
-        lon = float(meter_lon)
-        valid_points.append((lat, lon))
-        label = meter_label(
-            meter,
-            key_column,
-            system_column,
-            name_column,
-        )
-
-        folium.CircleMarker(
-            location=[lat, lon],
-            radius=4,
-            color="#007AFF",
-            weight=1,
-            opacity=0.50,
-            fill=True,
-            fill_color="#007AFF",
-            fill_opacity=0.34,
-            tooltip=folium.Tooltip(
-                html.escape(label),
-                permanent=False,
-                sticky=True,
-                direction="top",
-            ),
-        ).add_to(fmap)
-
-    if valid_points:
-        latitudes = [point[0] for point in valid_points]
-        longitudes = [point[1] for point in valid_points]
-        fmap.fit_bounds(
-            [
-                [min(latitudes), min(longitudes)],
-                [max(latitudes), max(longitudes)],
-            ],
-            padding=(18, 18),
-            max_zoom=14,
-        )
-
-    st_folium(
-        fmap,
-        width=None,
-        height=height,
-        use_container_width=True,
-        returned_objects=[],
-        key="inventory-overview-map",
-    )
-    st.caption(
-        f"Inventario geográfico: {len(valid_points)} equipo(s). "
-        "Seleccione un caudalímetro en el panel izquierdo para acercar y resaltarlo."
+        f"{label} · WGS84: {float(lat):.6f}, {float(lon):.6f} · "
+        "Fondo satelital: Esri World Imagery"
     )
 
 
@@ -1963,8 +1770,6 @@ candidate_indices = sorted(
 selected_index = st.sidebar.selectbox(
     "Caudalímetro / nombre",
     options=candidate_indices,
-    index=None if page in {"Revisión de equipo", "Ficha e historial"} else 0,
-    placeholder="Seleccione un caudalímetro",
     format_func=lambda idx: meter_label(
         meters.loc[idx],
         key_column,
@@ -1972,22 +1777,6 @@ selected_index = st.sidebar.selectbox(
         name_column,
     ),
 )
-
-if selected_index is None:
-    st.title("Seguimiento de Caudalímetros")
-    st.caption(
-        "Vista general del inventario. Seleccione un caudalímetro en el panel izquierdo "
-        "para abrir su revisión o historial."
-    )
-    render_inventory_overview_map(
-        meters,
-        key_column=key_column,
-        system_column=system_column,
-        name_column=name_column,
-        height=560,
-    )
-    st.stop()
-
 selected_row = meters.loc[selected_index]
 equipment_key = str(selected_row.get(key_column))
 selected_system_name = meter_system(selected_row, system_column)
@@ -2015,14 +1804,7 @@ if page == "Revisión de equipo":
     top_map, top_data = st.columns([0.48, 0.52], gap="large")
     with top_map:
         st.markdown("#### Ubicación del equipo")
-        render_meter_map(
-            selected_row,
-            meters,
-            key_column=key_column,
-            system_column=system_column,
-            name_column=name_column,
-            height=390,
-        )
+        render_meter_map(selected_row, height=390)
 
     with top_data:
         st.markdown("#### Atributos de la geodatabase")
@@ -2388,14 +2170,7 @@ elif page == "Ficha e historial":
     top_map, top_data = st.columns([0.48, 0.52], gap="large")
     with top_map:
         st.markdown("#### Ubicación del equipo")
-        render_meter_map(
-            selected_row,
-            meters,
-            key_column=key_column,
-            system_column=system_column,
-            name_column=name_column,
-            height=390,
-        )
+        render_meter_map(selected_row, height=390)
 
     with top_data:
         st.markdown("#### Atributos de la geodatabase")
