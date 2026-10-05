@@ -1009,42 +1009,10 @@ def edit_review_dialog(
             key=f"edit-rectification-equipment-{review_id}",
         )
 
-    is_ultrasonic = st.checkbox(
-        "Es un equipo ultrasónico",
-        value=bool(review.get("is_ultrasonic")),
-        key=f"edit-ultrasonic-{review_id}",
+    equipment_fields = render_equipment_generalities(
+        f"edit-{review_id}",
+        review,
     )
-
-    circumference_mm = None
-    wall_thickness_mm = None
-    transducer_distance_mm = None
-    if is_ultrasonic:
-        u1, u2, u3 = st.columns(3)
-        circumference_mm = u1.number_input(
-            "Circunferencia [mm]",
-            min_value=0.0,
-            value=float(review.get("circumference_mm") or 0),
-            step=0.1,
-            format="%.2f",
-            key=f"edit-circumference-{review_id}",
-        )
-        wall_thickness_mm = u2.number_input(
-            "Espesor [mm]",
-            min_value=0.0,
-            value=float(review.get("wall_thickness_mm") or 0),
-            step=0.1,
-            format="%.2f",
-            key=f"edit-thickness-{review_id}",
-        )
-        transducer_distance_mm = u3.number_input(
-            "Distancia transductores [mm]",
-            min_value=0.0,
-            value=float(review.get("transducer_distance_mm") or 0),
-            step=0.1,
-            format="%.2f",
-            key=f"edit-transducer-{review_id}",
-        )
-
     measurement_quality = st.selectbox(
         "Calidad de medición",
         options=list(QUALITY_VALUES),
@@ -1074,6 +1042,19 @@ def edit_review_dialog(
         value=str(review.get("notes") or ""),
         height=90,
         key=f"edit-notes-{review_id}",
+    )
+
+    maintenance_fields = render_maintenance_section(
+        f"edit-{review_id}",
+        review,
+    )
+    data_fields = render_data_section(
+        f"edit-{review_id}",
+        review,
+    )
+    repair_fields = render_repairs_section(
+        f"edit-{review_id}",
+        review,
     )
 
     st.markdown("#### Punto de medición")
@@ -1169,13 +1150,18 @@ def edit_review_dialog(
         validation_data = {
             "rectification_status": rectification_status,
             "rectification_equipment": rectification_equipment,
-            "is_ultrasonic": is_ultrasonic,
-            "circumference_mm": circumference_mm,
-            "wall_thickness_mm": wall_thickness_mm,
-            "transducer_distance_mm": transducer_distance_mm,
+            "is_ultrasonic": equipment_fields["is_ultrasonic"],
+            "circumference_mm": equipment_fields["circumference_mm"],
+            "wall_thickness_mm": equipment_fields["wall_thickness_mm"],
+            "transducer_distance_mm": equipment_fields["transducer_distance_mm"],
             "measurement_quality": measurement_quality,
         }
         errors = list(validate_review(validation_data).errors)
+        if (
+            repair_fields.get("repair_spare_part_required")
+            and not repair_fields.get("repair_spare_part_detail")
+        ):
+            errors.append("Indique cuál repuesto particular requiere el equipo.")
 
         measurement_latitude = None
         measurement_longitude = None
@@ -1253,12 +1239,6 @@ def edit_review_dialog(
             payload = {
                 "rectification_status": rectification_status,
                 "rectification_equipment": rectification_equipment.strip() or None,
-                "is_ultrasonic": bool(is_ultrasonic),
-                "circumference_mm": circumference_mm if is_ultrasonic else None,
-                "wall_thickness_mm": wall_thickness_mm if is_ultrasonic else None,
-                "transducer_distance_mm": (
-                    transducer_distance_mm if is_ultrasonic else None
-                ),
                 "measurement_quality": measurement_quality,
                 "last_maintenance_date": (
                     last_maintenance_date.isoformat()
@@ -1285,6 +1265,10 @@ def edit_review_dialog(
                 "sharepoint_item_id": sharepoint_item_id,
                 "sharepoint_file_name": sharepoint_file_name,
             }
+            payload.update(equipment_fields)
+            payload.update(maintenance_fields)
+            payload.update(data_fields)
+            payload.update(repair_fields)
 
             review_repo.update_review(review_id, payload)
 
