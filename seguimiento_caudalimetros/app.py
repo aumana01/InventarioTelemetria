@@ -25,7 +25,7 @@ from src.core import (
     validate_html_file,
     validate_review,
 )
-from src.graph_renderer import render_html_graph
+from src.graph_renderer import render_stored_graph
 from src.sql_repository import SqlMeterRepository
 from src.supabase_repository import SupabaseMeterRepository, SupabaseReviewRepository
 from src.ui import load_css, readonly_snapshot, review_summary, status_badge
@@ -1065,6 +1065,7 @@ def edit_review_dialog(
     review_id = str(review.get("id") or "")
     old_storage_path = str(review.get("graph_storage_path") or "").strip() or None
     old_graph_source = str(review.get("graph_source") or "none")
+    old_graph_format = str(review.get("graph_format") or "html")
     old_sharepoint_url = str(review.get("graph_original_url") or "").strip()
 
     st.caption(
@@ -1254,6 +1255,7 @@ def edit_review_dialog(
             errors.extend(coordinate_validation.errors)
 
         new_storage_path = old_storage_path
+        graph_format = old_graph_format
         graph_original_url = None
         sharepoint_item_id = None
         sharepoint_file_name = None
@@ -1263,6 +1265,7 @@ def edit_review_dialog(
             if old_storage_path:
                 storage_path_to_cleanup = old_storage_path
             new_storage_path = None
+            graph_format = "html"
 
         elif selected_graph_source == "sharepoint_link":
             parsed_link = parse_sharepoint_attachment_url(sharepoint_url)
@@ -1283,6 +1286,7 @@ def edit_review_dialog(
                     if old_storage_path:
                         storage_path_to_cleanup = old_storage_path
                     new_storage_path = None
+                    graph_format = "html"
 
         elif selected_graph_source == "manual":
             if replacement_html is not None:
@@ -1311,6 +1315,7 @@ def edit_review_dialog(
                 if old_storage_path and old_storage_path != uploaded_path:
                     storage_path_to_cleanup = old_storage_path
                 new_storage_path = uploaded_path
+                graph_format = "html"
                 sharepoint_file_name = replacement_html.name
 
             payload = {
@@ -1336,6 +1341,7 @@ def edit_review_dialog(
                     else None
                 ),
                 "graph_source": selected_graph_source,
+                "graph_format": graph_format,
                 "graph_storage_path": new_storage_path,
                 "graph_original_url": graph_original_url,
                 "sharepoint_item_id": sharepoint_item_id,
@@ -1401,14 +1407,16 @@ def delete_review_dialog(
 
 @st.dialog("Gráfico comparativo de mediciones", width="large")
 def large_graph_dialog(
-    html_content: bytes | str,
+    graph_content: bytes,
+    graph_format: str,
     graph_key: str,
     equipment_label: str,
 ) -> None:
     if equipment_label:
         st.caption(equipment_label)
-    render_html_graph(
-        html_content,
+    render_stored_graph(
+        graph_content,
+        graph_format=graph_format,
         key=f"large-{graph_key}",
         height=780,
     )
@@ -1430,6 +1438,7 @@ def render_graph_for_review(
             return
         try:
             content = review_repo.download_html(str(path))
+            graph_format = str(review.get("graph_format") or "html")
             graph_id = str(review.get("id") or path)
             if st.button(
                 "⛶ Ver gráfico en pantalla grande",
@@ -1438,12 +1447,17 @@ def render_graph_for_review(
             ):
                 large_graph_dialog(
                     content,
+                    graph_format=graph_format,
                     graph_key=f"manual-{graph_id}",
                     equipment_label=str(
                         review.get("equipment_label") or "Caudalímetro"
                     ),
                 )
-            render_html_graph(content, key=f"manual-{graph_id}")
+            render_stored_graph(
+                content,
+                graph_format=graph_format,
+                key=f"manual-{graph_id}",
+            )
         except Exception as exc:
             st.error(f"No fue posible recuperar el HTML desde Supabase: {exc}")
         return
@@ -1461,7 +1475,11 @@ def render_graph_for_review(
         if cached_path and review_repo is not None:
             try:
                 content = review_repo.download_html(str(cached_path))
-                st.success("HTML de SharePoint sincronizado en Supabase.")
+                graph_format = str(review.get("graph_format") or "html")
+                if graph_format == "plotly_json_gzip":
+                    st.success("Gráfico Plotly optimizado y sincronizado en Supabase.")
+                else:
+                    st.success("HTML de SharePoint sincronizado en Supabase.")
                 graph_id = str(review.get("id") or cached_path)
                 if st.button(
                     "⛶ Ver gráfico en pantalla grande",
@@ -1470,13 +1488,15 @@ def render_graph_for_review(
                 ):
                     large_graph_dialog(
                         content,
+                        graph_format=graph_format,
                         graph_key=f"sharepoint-{graph_id}",
                         equipment_label=str(
                             review.get("equipment_label") or "Caudalímetro"
                         ),
                     )
-                render_html_graph(
+                render_stored_graph(
                     content,
+                    graph_format=graph_format,
                     key=f"sharepoint-local-{graph_id}",
                 )
                 return
@@ -1906,6 +1926,7 @@ if page == "Revisión de equipo":
                             "rectification_equipment": rectification_equipment or None,
                             "measurement_quality": measurement_quality,
                             "graph_source": graph_source,
+                            "graph_format": "html",
                             "graph_storage_path": graph_storage_path,
                             "sharepoint_item_id": sharepoint_item_id,
                             "sharepoint_file_name": sharepoint_file_name,
