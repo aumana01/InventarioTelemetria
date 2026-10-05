@@ -44,6 +44,8 @@ No suba `agent_secrets.toml` a GitHub.
 
 El usuario de Streamlit solo pega el vínculo y guarda. Si `graph_storage_path` está vacío, el agente lo detecta y sincroniza el HTML automáticamente.
 
+Además, el agente publica una **señal de vida (heartbeat)** en el bucket privado de Supabase cada ciclo. La vista **Diagnóstico** del aplicativo utiliza esa señal para indicar si existe un agente activo, en qué equipo está corriendo y hace cuántos segundos se recibió la última señal. No se requiere una tabla nueva ni una migración SQL.
+
 Para renovar la sesión Microsoft 365:
 
 ```text
