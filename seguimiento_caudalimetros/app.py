@@ -907,7 +907,7 @@ def render_equipment_generalities(
     return payload
 
 
-def render_review_control_sections(review: dict[str, Any]) -> None:
+def render_review_maintenance_status(review: dict[str, Any]) -> None:
     st.markdown("### Estado de mantenimiento")
     equipment_type = str(review.get("equipment_type") or "No definido")
     maintenance_rows = [
@@ -975,6 +975,8 @@ def render_review_control_sections(review: dict[str, Any]) -> None:
                 condition_ok=condition_ok,
             )
 
+
+def render_review_repairs_status(review: dict[str, Any]) -> None:
     st.markdown("### Aspectos de reparación o mantenimiento")
     repair_rows = [
         ("Señal", "repair_signal_pending"),
@@ -1009,7 +1011,10 @@ def render_review_control_sections(review: dict[str, Any]) -> None:
             "error" if spare else "success",
         )
 
+
+def render_review_generalities(review: dict[str, Any]) -> None:
     st.markdown("### Generalidades del equipo")
+    equipment_type = str(review.get("equipment_type") or "No definido")
     general_rows = [
         ("Tipo de equipo", equipment_type),
         ("Número de serie del equipo", review.get("equipment_serial")),
@@ -1057,6 +1062,12 @@ def render_review_control_sections(review: dict[str, Any]) -> None:
         hide_index=True,
         width="stretch",
     )
+
+
+def render_review_control_sections(review: dict[str, Any]) -> None:
+    render_review_maintenance_status(review)
+    render_review_repairs_status(review)
+    render_review_generalities(review)
 
 
 @st.dialog("Editar revisión")
