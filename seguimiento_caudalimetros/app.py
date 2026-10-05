@@ -22,7 +22,7 @@ from src.core import (
     validate_review,
 )
 from src.graph_renderer import render_html_graph
-from src.sharepoint_repository import SharePointListRepository, fetch_sharepoint_html_direct
+from src.sharepoint_repository import SharePointListRepository, retrieve_sharepoint_html
 from src.sql_repository import SqlMeterRepository
 from src.supabase_repository import SupabaseMeterRepository, SupabaseReviewRepository
 from src.ui import load_css, readonly_snapshot, review_summary, status_badge
@@ -872,47 +872,27 @@ if page == "Revisión de equipo":
                                     "Se utilizó la copia HTML de respaldo suministrada."
                                 )
                             else:
-                                direct_error = None
                                 try:
-                                    html_filename, html_content = fetch_sharepoint_html_direct(
-                                        sharepoint_url
-                                    )
-                                    link_copy_status = (
-                                        "HTML recuperado automáticamente desde el vínculo "
-                                        "de SharePoint y copiado a Supabase."
-                                    )
-                                except Exception as exc:
-                                    direct_error = exc
-
-                                if (
-                                    html_content is None
-                                    and settings.sharepoint_configured
-                                    and sharepoint_item_id is not None
-                                    and sharepoint_file_name
-                                ):
-                                    try:
-                                        sp_repo = get_sp_repo()
-                                        if sp_repo is not None:
-                                            html_filename, html_content = (
-                                                sp_repo.download_attachment_by_name(
-                                                    int(sharepoint_item_id),
-                                                    str(sharepoint_file_name),
-                                                )
-                                            )
-                                            link_copy_status = (
-                                                "HTML recuperado automáticamente mediante "
-                                                "SharePoint REST y copiado a Supabase."
-                                            )
-                                    except Exception as api_exc:
-                                        link_copy_warning = (
-                                            "No fue posible copiar automáticamente el HTML. "
-                                            f"Acceso directo: {direct_error}; API: {api_exc}"
+                                    html_filename, html_content, retrieval_method = (
+                                        retrieve_sharepoint_html(
+                                            sharepoint_url,
+                                            get_sp_repo(),
                                         )
-
-                                if html_content is None and link_copy_warning is None:
+                                    )
+                                    if retrieval_method == "api":
+                                        link_copy_status = (
+                                            "HTML real extraído automáticamente mediante "
+                                            "SharePoint REST y copiado a Supabase."
+                                        )
+                                    else:
+                                        link_copy_status = (
+                                            "HTML real extraído automáticamente desde el adjunto "
+                                            "de SharePoint y copiado a Supabase."
+                                        )
+                                except Exception as exc:
                                     link_copy_warning = (
-                                        "No fue posible copiar automáticamente el HTML desde "
-                                        f"SharePoint: {direct_error}"
+                                        "No fue posible extraer automáticamente el HTML real "
+                                        f"desde SharePoint: {exc}"
                                     )
 
                             if html_content is not None:
@@ -1081,6 +1061,47 @@ elif page == "Ficha e historial":
 
     with c2:
         st.markdown("#### Gráfico comparativo de mediciones")
+
+        if review.get("graph_source") == "sharepoint_link" and review.get("graph_original_url"):
+            if st.button(
+                "Reextraer HTML desde vínculo",
+                key=f"repair-sharepoint-{review.get('id')}",
+                use_container_width=True,
+            ):
+                try:
+                    filename, html_content, retrieval_method = retrieve_sharepoint_html(
+                        str(review.get("graph_original_url")),
+                        get_sp_repo(),
+                    )
+                    html_validation = validate_html_file(filename, html_content)
+                    if not html_validation.ok:
+                        raise ValueError("; ".join(html_validation.errors))
+
+                    new_path = review_repo.upload_html(
+                        equipment_key=equipment_key,
+                        filename=filename,
+                        content=html_content,
+                    )
+                    review_repo.update_review_graph_cache(
+                        review_id=str(review.get("id")),
+                        graph_storage_path=new_path,
+                        sharepoint_file_name=filename,
+                    )
+                    method_label = (
+                        "SharePoint REST"
+                        if retrieval_method == "api"
+                        else "el adjunto directo de SharePoint"
+                    )
+                    st.success(
+                        f"HTML real recuperado desde {method_label} y actualizado en Supabase."
+                    )
+                    st.rerun()
+                except Exception as exc:
+                    st.error(
+                        "No fue posible reextraer el HTML real desde el vínculo. "
+                        f"Detalle: {exc}"
+                    )
+
         render_graph_for_review(review, review_repo)
 
     st.markdown("#### Historial del equipo")

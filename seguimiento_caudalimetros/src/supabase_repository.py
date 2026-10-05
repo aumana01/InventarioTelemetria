@@ -163,6 +163,27 @@ class SupabaseReviewRepository:
         rows = self.list_reviews(equipment_key=equipment_key, limit=1)
         return rows[0] if rows else None
 
+    def update_review_graph_cache(
+        self,
+        review_id: str,
+        graph_storage_path: str,
+        sharepoint_file_name: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "graph_storage_path": graph_storage_path,
+        }
+        if sharepoint_file_name:
+            payload["sharepoint_file_name"] = sharepoint_file_name
+
+        result = (
+            self.client.table(self.table_name)
+            .update(payload)
+            .eq("id", str(review_id))
+            .execute()
+        )
+        rows = getattr(result, "data", None) or []
+        return rows[0] if rows else payload
+
     def upload_html(self, equipment_key: str, filename: str, content: bytes) -> str:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         path = (
