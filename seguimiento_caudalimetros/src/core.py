@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 import math
 import re
 from dataclasses import dataclass
@@ -11,6 +12,13 @@ from urllib.parse import unquote, urlparse
 
 QUALITY_VALUES = ("Excelente", "Buena", "Regular", "Mala")
 RECTIFICATION_VALUES = ("No se ha realizado", "Sí, con medición simultánea")
+EQUIPMENT_TYPE_VALUES = (
+    "No definido",
+    "Ultrasónico",
+    "Electromagnético",
+    "Canal Abierto",
+    "Inserción",
+)
 MAX_HTML_BYTES = 10 * 1024 * 1024
 
 
@@ -139,6 +147,52 @@ def normalize_value(value: Any) -> Any:
 
 def snapshot_from_row(row: Mapping[str, Any]) -> dict[str, Any]:
     return {str(k): normalize_value(v) for k, v in row.items()}
+
+
+def parse_optional_date(value: Any) -> date | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value).strip()[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def add_months(value: date, months: int) -> date:
+    month_index = value.month - 1 + int(months)
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(value.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def maintenance_due_status(
+    last_date: Any,
+    interval_months: int,
+    *,
+    applicable: bool = True,
+    condition_ok: bool = True,
+    today: date | None = None,
+) -> tuple[str, str]:
+    """Devuelve (kind, texto) para el semáforo de mantenimiento."""
+    if not applicable:
+        return "info", "⚪ No aplica"
+    if not condition_ok:
+        return "error", "🔴 Requiere atención"
+
+    parsed = parse_optional_date(last_date)
+    if parsed is None:
+        return "error", "🔴 Sin fecha"
+
+    reference = today or date.today()
+    due = add_months(parsed, interval_months)
+    if reference > due:
+        return "error", f"🔴 Vencido desde {due.strftime('%d/%m/%Y')}"
+    return "success", f"🟢 Vigente hasta {due.strftime('%d/%m/%Y')}"
 
 
 def validate_review(data: Mapping[str, Any]) -> ValidationResult:
