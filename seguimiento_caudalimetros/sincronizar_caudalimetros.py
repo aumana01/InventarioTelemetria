@@ -79,7 +79,8 @@ def main() -> int:
     print(
         "Sincronización completada. "
         f"Actualizados/insertados: {result['upserted']}; "
-        f"omitidos por clave vacía: {result['skipped']}."
+        f"omitidos por clave vacía: {result['skipped']}; "
+        f"obsoletos eliminados del inventario: {result.get('deleted_stale', 0)}."
     )
 
     try:
