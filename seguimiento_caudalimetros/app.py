@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import pydeck as pdk
 import streamlit as st
 
 from src.config import Settings
@@ -246,40 +247,162 @@ def meter_matches_search(
     return bool(compact_query and compact_query in compact_combined)
 
 
+SATELLITE_TILE_URL = (
+    "https://server.arcgisonline.com/ArcGIS/rest/services/"
+    "World_Imagery/MapServer/tile/{z}/{y}/{x}"
+)
+
+
+def satellite_tile_layer() -> pdk.Layer:
+    return pdk.Layer(
+        "TileLayer",
+        data=SATELLITE_TILE_URL,
+        min_zoom=0,
+        max_zoom=19,
+        tile_size=256,
+        render_sub_layers=[
+            {
+                "@@type": "BitmapLayer",
+                "bounds": "@@props.tile.boundingBox",
+                "image": "@@props.data",
+            }
+        ],
+    )
+
+
+def render_satellite_point_map(
+    latitude: float,
+    longitude: float,
+    label: str,
+    height: int = 500,
+    zoom: float = 18,
+) -> None:
+    point_df = pd.DataFrame(
+        [
+            {
+                "lat": float(latitude),
+                "lon": float(longitude),
+                "label": str(label or "Punto de medición"),
+            }
+        ]
+    )
+
+    marker_layer = pdk.Layer(
+        "ScatterplotLayer",
+        data=point_df,
+        get_position="[lon, lat]",
+        get_radius=8,
+        radius_min_pixels=7,
+        radius_max_pixels=11,
+        get_fill_color=[0, 122, 255, 235],
+        get_line_color=[255, 255, 255, 255],
+        line_width_min_pixels=2,
+        stroked=True,
+        filled=True,
+        pickable=True,
+    )
+
+    # Dos capas de texto crean un contorno oscuro para que la etiqueta
+    # sea legible tanto sobre áreas claras como sobre la imagen satelital.
+    label_outline_layer = pdk.Layer(
+        "TextLayer",
+        data=point_df,
+        get_position="[lon, lat]",
+        get_text="label",
+        get_size=17,
+        size_units="pixels",
+        get_color=[0, 0, 0, 245],
+        get_alignment_baseline="'bottom'",
+        get_text_anchor="'middle'",
+        get_pixel_offset=[0, -16],
+        billboard=True,
+        pickable=False,
+    )
+
+    label_layer = pdk.Layer(
+        "TextLayer",
+        data=point_df,
+        get_position="[lon, lat]",
+        get_text="label",
+        get_size=15,
+        size_units="pixels",
+        get_color=[255, 255, 255, 255],
+        get_alignment_baseline="'bottom'",
+        get_text_anchor="'middle'",
+        get_pixel_offset=[0, -16],
+        billboard=True,
+        pickable=False,
+    )
+
+    deck = pdk.Deck(
+        layers=[
+            satellite_tile_layer(),
+            marker_layer,
+            label_outline_layer,
+            label_layer,
+        ],
+        initial_view_state=pdk.ViewState(
+            latitude=float(latitude),
+            longitude=float(longitude),
+            zoom=zoom,
+            min_zoom=4,
+            max_zoom=20,
+            pitch=0,
+            bearing=0,
+        ),
+        map_style=None,
+        tooltip={
+            "html": "<b>{label}</b><br/>Lat: {lat}<br/>Lon: {lon}",
+            "style": {
+                "backgroundColor": "rgba(20, 20, 20, 0.88)",
+                "color": "white",
+            },
+        },
+    )
+
+    st.pydeck_chart(
+        deck,
+        use_container_width=True,
+        height=height,
+    )
+
+
 def render_meter_map(row: pd.Series) -> None:
     lat = row.get("LATITUD")
     lon = row.get("LONGITUD")
     if pd.isna(lat) or pd.isna(lon):
         st.warning("El punto seleccionado no tiene coordenadas WGS84 utilizables.")
         return
-    map_df = pd.DataFrame({"lat": [float(lat)], "lon": [float(lon)]})
-    st.map(
-        map_df,
-        latitude="lat",
-        longitude="lon",
-        color="#0072BC",
-        size=45,
-        zoom=16,
-        width="stretch",
+
+    label = meter_name(row) or "Caudalímetro"
+    render_satellite_point_map(
+        latitude=float(lat),
+        longitude=float(lon),
+        label=label,
         height=500,
-    )
-    st.caption(f"WGS84: {float(lat):.6f}, {float(lon):.6f}")
-
-
-def render_measurement_point_map(latitude: float, longitude: float) -> None:
-    point_df = pd.DataFrame({"lat": [float(latitude)], "lon": [float(longitude)]})
-    st.map(
-        point_df,
-        latitude="lat",
-        longitude="lon",
-        color="#0072BC",
-        size=38,
-        zoom=16,
-        width="stretch",
-        height=300,
+        zoom=18,
     )
     st.caption(
-        f"Punto puntual de medición · WGS84: {float(latitude):.6f}, {float(longitude):.6f}"
+        f"{label} · WGS84: {float(lat):.6f}, {float(lon):.6f} · "
+        "Fondo satelital: Esri World Imagery"
+    )
+
+
+def render_measurement_point_map(
+    latitude: float,
+    longitude: float,
+    label: str = "Punto de medición",
+) -> None:
+    render_satellite_point_map(
+        latitude=float(latitude),
+        longitude=float(longitude),
+        label=label,
+        height=320,
+        zoom=18,
+    )
+    st.caption(
+        f"{label} · WGS84: {float(latitude):.6f}, {float(longitude):.6f} · "
+        "Fondo satelital: Esri World Imagery"
     )
 
 
