@@ -448,18 +448,21 @@ def render_review_equipment_map(
             fill_opacity=0.28,
             tooltip=folium.Tooltip(
                 f"Referencia · {html.escape(reference_label)}",
-                permanent=False,
-                sticky=True,
+                permanent=True,
+                sticky=False,
                 direction="top",
+                offset=(0, -4),
                 style=(
-                    "background-color: rgba(255,248,235,0.96);"
+                    "background-color: rgba(255,248,235,0.76);"
                     "color: #7c4a03;"
-                    "font-size: 11px;"
+                    "font-size: 10px;"
                     "font-weight: 600;"
-                    "padding: 3px 7px;"
-                    "border: 1px solid rgba(245,158,11,0.65);"
+                    "padding: 2px 6px;"
+                    "border: 1px solid rgba(245,158,11,0.50);"
                     "border-radius: 5px;"
+                    "box-shadow: 0 1px 3px rgba(0,0,0,0.18);"
                     "white-space: nowrap;"
+                    "opacity: 0.82;"
                 ),
             ),
         ).add_to(fmap)
