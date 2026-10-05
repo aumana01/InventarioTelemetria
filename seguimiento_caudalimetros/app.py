@@ -14,7 +14,6 @@ from streamlit_folium import st_folium
 
 from src.config import Settings
 from src.core import (
-    EQUIPMENT_TYPE_VALUES,
     QUALITY_VALUES,
     RECTIFICATION_VALUES,
     determine_key_column,
@@ -430,6 +429,7 @@ def _maintenance_badge(
 def render_maintenance_section(
     prefix: str,
     current: dict[str, Any] | None = None,
+    equipment_type: str = "No definido",
 ) -> dict[str, Any]:
     current = current or {}
     st.markdown("### ASPECTOS DE MANTENIMIENTO")
@@ -438,17 +438,36 @@ def render_maintenance_section(
         "Verde = vigente; rojo = vencido, sin fecha o condición no satisfactoria."
     )
 
+    gel_applicable = st.checkbox(
+        "Aplica cambio de gel",
+        value=bool(
+            current.get("maintenance_gel_applicable")
+            if current.get("maintenance_gel_applicable") is not None
+            else True
+        ),
+        key=f"{prefix}-maintenance-gel-applicable",
+    )
     c1, c2 = st.columns([0.72, 0.28])
     gel_date = c1.date_input(
         "Cambio de gel",
         value=_review_date_value(current.get("maintenance_gel_date")),
         max_value=date.today(),
+        disabled=not gel_applicable,
         key=f"{prefix}-maintenance-gel",
     )
     with c2:
         st.caption("Vigencia: 6 meses")
-        _maintenance_badge(gel_date, 6)
+        _maintenance_badge(gel_date, 6, applicable=gel_applicable)
 
+    alignment_applicable = st.checkbox(
+        "Aplica alineación y sujeción de transductores",
+        value=bool(
+            current.get("maintenance_transducers_alignment_applicable")
+            if current.get("maintenance_transducers_alignment_applicable") is not None
+            else True
+        ),
+        key=f"{prefix}-maintenance-alignment-applicable",
+    )
     c1, c2 = st.columns([0.72, 0.28])
     alignment_date = c1.date_input(
         "Transductores alineados y con buena sujeción",
@@ -456,11 +475,16 @@ def render_maintenance_section(
             current.get("maintenance_transducers_alignment_date")
         ),
         max_value=date.today(),
+        disabled=not alignment_applicable,
         key=f"{prefix}-maintenance-alignment",
     )
     with c2:
         st.caption("Vigencia: 6 meses")
-        _maintenance_badge(alignment_date, 6)
+        _maintenance_badge(
+            alignment_date,
+            6,
+            applicable=alignment_applicable,
+        )
 
     download_applicable = st.checkbox(
         "Aplica descarga de datos internos del equipo",
@@ -503,6 +527,48 @@ def render_maintenance_section(
         st.caption("Vigencia: 12 meses")
         _maintenance_badge(simultaneous_date, 12)
 
+    insertion_cleaning_date = None
+    if equipment_type == "Inserción":
+        c1, c2 = st.columns([0.72, 0.28])
+        insertion_cleaning_date = c1.date_input(
+            "Limpieza del sensor de inserción",
+            value=_review_date_value(
+                current.get("maintenance_insertion_sensor_cleaning_date")
+            ),
+            max_value=date.today(),
+            key=f"{prefix}-maintenance-insertion-cleaning",
+        )
+        with c2:
+            st.caption("Vigencia: 12 meses")
+            _maintenance_badge(insertion_cleaning_date, 12)
+
+    solar_applicable = st.checkbox(
+        "Aplica limpieza de panel solar y gabinete",
+        value=bool(
+            current.get("maintenance_solar_panel_applicable")
+            if current.get("maintenance_solar_panel_applicable") is not None
+            else False
+        ),
+        key=f"{prefix}-maintenance-solar-applicable",
+    )
+    c1, c2 = st.columns([0.72, 0.28])
+    solar_cleaning_date = c1.date_input(
+        "Limpieza de panel solar y gabinete",
+        value=_review_date_value(
+            current.get("maintenance_solar_panel_cleaning_date")
+        ),
+        max_value=date.today(),
+        disabled=not solar_applicable,
+        key=f"{prefix}-maintenance-solar-cleaning",
+    )
+    with c2:
+        st.caption("Vigencia: 12 meses")
+        _maintenance_badge(
+            solar_cleaning_date,
+            12,
+            applicable=solar_applicable,
+        )
+
     st.markdown("**Funcionamiento en SCADA**")
     s1, s2, s3 = st.columns([0.34, 0.38, 0.28])
     scada_choice = s1.selectbox(
@@ -526,9 +592,17 @@ def render_maintenance_section(
         )
 
     return {
-        "maintenance_gel_date": gel_date.isoformat() if gel_date else None,
+        "maintenance_gel_applicable": bool(gel_applicable),
+        "maintenance_gel_date": (
+            gel_date.isoformat() if gel_applicable and gel_date else None
+        ),
+        "maintenance_transducers_alignment_applicable": bool(
+            alignment_applicable
+        ),
         "maintenance_transducers_alignment_date": (
-            alignment_date.isoformat() if alignment_date else None
+            alignment_date.isoformat()
+            if alignment_applicable and alignment_date
+            else None
         ),
         "maintenance_internal_download_applicable": bool(download_applicable),
         "maintenance_internal_download_date": (
@@ -539,6 +613,17 @@ def render_maintenance_section(
         "maintenance_simultaneous_installation_date": (
             simultaneous_date.isoformat() if simultaneous_date else None
         ),
+        "maintenance_insertion_sensor_cleaning_date": (
+            insertion_cleaning_date.isoformat()
+            if equipment_type == "Inserción" and insertion_cleaning_date
+            else None
+        ),
+        "maintenance_solar_panel_applicable": bool(solar_applicable),
+        "maintenance_solar_panel_cleaning_date": (
+            solar_cleaning_date.isoformat()
+            if solar_applicable and solar_cleaning_date
+            else None
+        ),
         "maintenance_scada_working": _yes_no_value(scada_choice),
         "maintenance_scada_check_date": (
             scada_date.isoformat() if scada_date else None
@@ -546,13 +631,16 @@ def render_maintenance_section(
     }
 
 
-def render_data_section(
+def render_data_checks(
     prefix: str,
     current: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     current = current or {}
-    st.markdown("### ASPECTOS DE DATOS")
-    st.caption("Registro de disponibilidad del dato. Esta sección no utiliza semáforo.")
+    st.markdown("#### Disponibilidad y visualización de datos")
+    st.caption(
+        "Estos controles forman parte del seguimiento de reparación/mantenimiento "
+        "y se registran con Sí/No/Sin verificar + fecha, sin semáforo."
+    )
 
     fields = [
         (
@@ -658,33 +746,80 @@ def render_repairs_section(
 
     payload["repair_spare_part_required"] = bool(spare_required)
     payload["repair_spare_part_detail"] = spare_detail.strip() or None
+    payload.update(render_data_checks(prefix, current))
     return payload
+
+
+def render_control_general_equipment(
+    prefix: str,
+    current: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    current = current or {}
+
+    current_type = str(current.get("equipment_type") or "No definido")
+    if current_type == "No definido" and current.get("is_ultrasonic"):
+        current_type = "Ultrasónico"
+
+    choices = [
+        "Seleccione tipo de equipo",
+        "Ultrasónico",
+        "Electromagnético",
+        "Inserción",
+        "Canal Abierto",
+    ]
+    current_choice = (
+        current_type if current_type in choices[1:] else choices[0]
+    )
+    equipment_type_choice = st.selectbox(
+        "Tipo de equipo",
+        options=choices,
+        index=choices.index(current_choice),
+        key=f"{prefix}-control-equipment-type",
+    )
+    equipment_type = (
+        "No definido"
+        if equipment_type_choice == "Seleccione tipo de equipo"
+        else equipment_type_choice
+    )
+
+    equipment_serial = st.text_input(
+        "Número de serie del equipo",
+        value=str(current.get("equipment_serial") or ""),
+        key=f"{prefix}-equipment-serial",
+    )
+
+    transducer_serial = None
+    if equipment_type == "Ultrasónico":
+        transducer_serial = (
+            st.text_input(
+                "Número de serie de transductores",
+                value=str(current.get("transducer_serial") or ""),
+                key=f"{prefix}-transducer-serial-control",
+            ).strip()
+            or None
+        )
+    else:
+        st.caption(
+            "Número de serie de transductores: no aplica para el tipo de equipo seleccionado."
+        )
+
+    return {
+        "equipment_type": equipment_type,
+        "equipment_serial": equipment_serial.strip() or None,
+        "transducer_serial": transducer_serial,
+    }
 
 
 def render_equipment_generalities(
     prefix: str,
+    equipment_type: str,
     current: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     current = current or {}
     st.markdown("### GENERALIDADES DEL EQUIPO")
 
-    current_type = str(current.get("equipment_type") or "No definido")
-    if current_type == "No definido" and current.get("is_ultrasonic"):
-        current_type = "Ultrasónico"
-    if current_type not in EQUIPMENT_TYPE_VALUES:
-        current_type = "No definido"
-
-    equipment_type = st.selectbox(
-        "Tipo de equipo",
-        options=list(EQUIPMENT_TYPE_VALUES),
-        index=list(EQUIPMENT_TYPE_VALUES).index(current_type),
-        key=f"{prefix}-equipment-type",
-    )
-
     payload: dict[str, Any] = {
-        "equipment_type": equipment_type,
         "is_ultrasonic": equipment_type == "Ultrasónico",
-        "transducer_serial": None,
         "pipe_material": None,
         "circumference_mm": None,
         "wall_thickness_mm": None,
@@ -701,14 +836,6 @@ def render_equipment_generalities(
     }
 
     if equipment_type == "Ultrasónico":
-        payload["transducer_serial"] = (
-            st.text_input(
-                "No. serie de transductores actual",
-                value=str(current.get("transducer_serial") or ""),
-                key=f"{prefix}-transducer-serial",
-            ).strip()
-            or None
-        )
         u1, u2, u3 = st.columns(3)
         circumference = u1.number_input(
             "Circunferencia [mm]",
@@ -823,18 +950,30 @@ def render_equipment_generalities(
         payload["insertion_depth"] = depth or None
         payload["insertion_diameter"] = diameter or None
 
+    elif equipment_type == "No definido":
+        st.info("Seleccione el tipo de equipo en Control general de la revisión.")
+
     return payload
 
 
 def render_review_control_sections(review: dict[str, Any]) -> None:
     st.markdown("### Estado de mantenimiento")
+    equipment_type = str(review.get("equipment_type") or "No definido")
     maintenance_rows = [
-        ("Cambio de gel", "maintenance_gel_date", 6, True, True),
+        (
+            "Cambio de gel",
+            "maintenance_gel_date",
+            6,
+            bool(review.get("maintenance_gel_applicable", True)),
+            True,
+        ),
         (
             "Alineación y sujeción de transductores",
             "maintenance_transducers_alignment_date",
             6,
-            True,
+            bool(
+                review.get("maintenance_transducers_alignment_applicable", True)
+            ),
             True,
         ),
         (
@@ -849,6 +988,20 @@ def render_review_control_sections(review: dict[str, Any]) -> None:
             "maintenance_simultaneous_installation_date",
             12,
             True,
+            True,
+        ),
+        (
+            "Limpieza del sensor de inserción",
+            "maintenance_insertion_sensor_cleaning_date",
+            12,
+            equipment_type == "Inserción",
+            True,
+        ),
+        (
+            "Limpieza de panel solar y gabinete",
+            "maintenance_solar_panel_cleaning_date",
+            12,
+            bool(review.get("maintenance_solar_panel_applicable", False)),
             True,
         ),
         (
@@ -871,7 +1024,36 @@ def render_review_control_sections(review: dict[str, Any]) -> None:
                 condition_ok=condition_ok,
             )
 
-    st.markdown("### Aspectos de datos")
+    st.markdown("### Aspectos de reparación o mantenimiento")
+    repair_rows = [
+        ("Señal", "repair_signal_pending"),
+        ("Calibración", "repair_calibration_pending"),
+        ("Energía", "repair_power_pending"),
+        ("Cableado", "repair_wiring_pending"),
+        ("Sustitución temporal", "repair_temporary_replacement"),
+        ("Sustitución permanente", "repair_permanent_replacement"),
+    ]
+    for label, key in repair_rows:
+        pending = bool(review.get(key, False))
+        r1, r2 = st.columns([0.72, 0.28])
+        r1.write(label)
+        with r2:
+            status_badge(
+                "🔴 Pendiente" if pending else "🟢 Sin pendiente",
+                "error" if pending else "success",
+            )
+
+    spare = bool(review.get("repair_spare_part_required", False))
+    r1, r2 = st.columns([0.72, 0.28])
+    detail = str(review.get("repair_spare_part_detail") or "").strip()
+    r1.write("Repuesto particular" + (f": {detail}" if spare and detail else ""))
+    with r2:
+        status_badge(
+            "🔴 Requiere repuesto" if spare else "🟢 Sin pendiente",
+            "error" if spare else "success",
+        )
+
+    st.markdown("#### Disponibilidad y visualización de datos")
     data_rows = [
         ("Perspective", "data_perspective_visible", "data_perspective_check_date"),
         ("Vision Client CCO", "data_vision_cco_visible", "data_vision_cco_check_date"),
@@ -901,44 +1083,15 @@ def render_review_control_sections(review: dict[str, Any]) -> None:
         width="stretch",
     )
 
-    st.markdown("### Reparaciones o mantenimiento pendiente")
-    repair_rows = [
-        ("Señal", "repair_signal_pending"),
-        ("Calibración", "repair_calibration_pending"),
-        ("Energía", "repair_power_pending"),
-        ("Cableado", "repair_wiring_pending"),
-        ("Sustitución temporal", "repair_temporary_replacement"),
-        ("Sustitución permanente", "repair_permanent_replacement"),
-    ]
-    for label, key in repair_rows:
-        pending = bool(review.get(key, False))
-        r1, r2 = st.columns([0.72, 0.28])
-        r1.write(label)
-        with r2:
-            status_badge(
-                "🔴 Pendiente" if pending else "🟢 Sin pendiente",
-                "error" if pending else "success",
-            )
-    spare = bool(review.get("repair_spare_part_required", False))
-    r1, r2 = st.columns([0.72, 0.28])
-    detail = str(review.get("repair_spare_part_detail") or "").strip()
-    r1.write(
-        "Repuesto particular"
-        + (f": {detail}" if spare and detail else "")
-    )
-    with r2:
-        status_badge(
-            "🔴 Requiere repuesto" if spare else "🟢 Sin pendiente",
-            "error" if spare else "success",
-        )
-
     st.markdown("### Generalidades del equipo")
-    equipment_type = str(review.get("equipment_type") or "No definido")
-    general_rows = [("Tipo de equipo", equipment_type)]
+    general_rows = [
+        ("Tipo de equipo", equipment_type),
+        ("Número de serie del equipo", review.get("equipment_serial")),
+    ]
     if equipment_type == "Ultrasónico" or review.get("is_ultrasonic"):
         general_rows.extend(
             [
-                ("Serie de transductores", review.get("transducer_serial")),
+                ("Número de serie de transductores", review.get("transducer_serial")),
                 ("Circunferencia [mm]", review.get("circumference_mm")),
                 ("Espesor [mm]", review.get("wall_thickness_mm")),
                 (
@@ -995,6 +1148,12 @@ def edit_review_dialog(
         "Aquí puede corregir la información registrada en la revisión."
     )
 
+    st.markdown("### CONTROL GENERAL DE LA REVISIÓN")
+    control_fields = render_control_general_equipment(
+        f"edit-{review_id}",
+        review,
+    )
+
     rectification_status = st.radio(
         "Rectificación",
         options=list(RECTIFICATION_VALUES),
@@ -1009,10 +1168,6 @@ def edit_review_dialog(
             key=f"edit-rectification-equipment-{review_id}",
         )
 
-    equipment_fields = render_equipment_generalities(
-        f"edit-{review_id}",
-        review,
-    )
     measurement_quality = st.selectbox(
         "Calidad de medición",
         options=list(QUALITY_VALUES),
@@ -1031,12 +1186,6 @@ def edit_review_dialog(
         value=str(review.get("reviewed_by") or ""),
         key=f"edit-reviewed-by-{review_id}",
     )
-    failures = st.text_area(
-        "Fallas que ha presentado el equipo",
-        value=str(review.get("failures") or ""),
-        height=100,
-        key=f"edit-failures-{review_id}",
-    )
     notes = st.text_area(
         "Observaciones adicionales",
         value=str(review.get("notes") or ""),
@@ -1047,13 +1196,15 @@ def edit_review_dialog(
     maintenance_fields = render_maintenance_section(
         f"edit-{review_id}",
         review,
-    )
-    data_fields = render_data_section(
-        f"edit-{review_id}",
-        review,
+        equipment_type=control_fields["equipment_type"],
     )
     repair_fields = render_repairs_section(
         f"edit-{review_id}",
+        review,
+    )
+    equipment_fields = render_equipment_generalities(
+        f"edit-{review_id}",
+        control_fields["equipment_type"],
         review,
     )
 
@@ -1157,6 +1308,8 @@ def edit_review_dialog(
             "measurement_quality": measurement_quality,
         }
         errors = list(validate_review(validation_data).errors)
+        if control_fields.get("equipment_type") == "No definido":
+            errors.append("Seleccione el tipo de equipo.")
         if (
             repair_fields.get("repair_spare_part_required")
             and not repair_fields.get("repair_spare_part_detail")
@@ -1245,7 +1398,6 @@ def edit_review_dialog(
                     if last_maintenance_date
                     else None
                 ),
-                "failures": failures.strip() or None,
                 "notes": notes.strip() or None,
                 "reviewed_by": reviewed_by.strip() or None,
                 "measurement_latitude": (
@@ -1265,9 +1417,9 @@ def edit_review_dialog(
                 "sharepoint_item_id": sharepoint_item_id,
                 "sharepoint_file_name": sharepoint_file_name,
             }
+            payload.update(control_fields)
             payload.update(equipment_fields)
             payload.update(maintenance_fields)
-            payload.update(data_fields)
             payload.update(repair_fields)
 
             review_repo.update_review(review_id, payload)
@@ -1606,6 +1758,8 @@ if page == "Revisión de equipo":
         st.markdown(f"**Equipo:** {selected_meter_name or 'Sin nombre registrado'}")
 
         st.markdown("### CONTROL GENERAL DE LA REVISIÓN")
+        control_fields = render_control_general_equipment("new")
+
         rectification_status = st.radio(
             "¿El equipo se ha logrado rectificar con otro equipo de forma simultánea?",
             options=list(RECTIFICATION_VALUES),
@@ -1629,17 +1783,17 @@ if page == "Revisión de equipo":
             value=None,
             max_value=date.today(),
         )
-        failures = st.text_area(
-            "Fallas que ha presentado el equipo",
-            placeholder="Describa fallas, intermitencias, errores, desviaciones u observaciones técnicas.",
-            height=120,
-        )
         reviewed_by = st.text_input("Revisado por", placeholder="Nombre o usuario responsable")
 
-        maintenance_fields = render_maintenance_section("new")
-        data_fields = render_data_section("new")
+        maintenance_fields = render_maintenance_section(
+            "new",
+            equipment_type=control_fields["equipment_type"],
+        )
         repair_fields = render_repairs_section("new")
-        equipment_fields = render_equipment_generalities("new")
+        equipment_fields = render_equipment_generalities(
+            "new",
+            control_fields["equipment_type"],
+        )
 
         st.markdown("### PUNTO DE MEDICIÓN PUNTUAL")
         register_measurement_point = st.checkbox(
@@ -1750,6 +1904,8 @@ if page == "Revisión de equipo":
             }
             validation = validate_review(data)
             errors = list(validation.errors)
+            if control_fields.get("equipment_type") == "No definido":
+                errors.append("Seleccione el tipo de equipo.")
             if (
                 repair_fields.get("repair_spare_part_required")
                 and not repair_fields.get("repair_spare_part_detail")
@@ -1834,7 +1990,6 @@ if page == "Revisión de equipo":
                                 if last_maintenance_date
                                 else None
                             ),
-                            "failures": failures.strip() or None,
                             "notes": notes.strip() or None,
                             "reviewed_by": reviewed_by.strip() or None,
                         }
@@ -1847,9 +2002,9 @@ if page == "Revisión de equipo":
                                 measurement_location_notes.strip() or None
                             )
 
+                        payload.update(control_fields)
                         payload.update(equipment_fields)
                         payload.update(maintenance_fields)
-                        payload.update(data_fields)
                         payload.update(repair_fields)
 
                         saved = review_repo.insert_review(payload)
@@ -2001,11 +2156,18 @@ elif page == "Ficha e historial":
         "reviewed_at",
         "measurement_quality",
         "equipment_type",
+        "equipment_serial",
+        "transducer_serial",
         "rectification_status",
+        "maintenance_gel_applicable",
         "maintenance_gel_date",
+        "maintenance_transducers_alignment_applicable",
         "maintenance_transducers_alignment_date",
         "maintenance_internal_download_date",
         "maintenance_simultaneous_installation_date",
+        "maintenance_insertion_sensor_cleaning_date",
+        "maintenance_solar_panel_applicable",
+        "maintenance_solar_panel_cleaning_date",
         "maintenance_scada_working",
         "maintenance_scada_check_date",
         "last_maintenance_date",
@@ -2014,7 +2176,6 @@ elif page == "Ficha e historial":
         "measurement_latitude",
         "measurement_longitude",
         "reviewed_by",
-        "failures",
     ]
     existing = [c for c in wanted if c in history.columns]
     st.dataframe(history[existing], hide_index=True, width="stretch")
