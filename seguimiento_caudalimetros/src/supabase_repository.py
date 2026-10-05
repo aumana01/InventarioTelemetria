@@ -141,7 +141,23 @@ class SupabaseMeterRepository:
             ).execute()
             upserted += len(batch)
 
-        return {"upserted": upserted, "skipped": skipped}
+        deleted_stale = 0
+        if payloads:
+            # Solo se limpia después de completar todos los UPSERT.
+            # Las revisiones históricas viven en otra tabla y no se eliminan.
+            result = (
+                self.client.table(self.table_name)
+                .delete()
+                .neq("synced_at", synced_at)
+                .execute()
+            )
+            deleted_stale = len(getattr(result, "data", None) or [])
+
+        return {
+            "upserted": upserted,
+            "skipped": skipped,
+            "deleted_stale": deleted_stale,
+        }
 
     def ping(self) -> tuple[bool, str]:
         try:
