@@ -15,6 +15,8 @@ from src.core import (
     RECTIFICATION_VALUES,
     determine_key_column,
     determine_key_column_from_frame,
+    parse_measurement_coordinates,
+    parse_sharepoint_attachment_url,
     snapshot_from_row,
     validate_html_file,
     validate_review,
@@ -275,6 +277,23 @@ def render_meter_map(row: pd.Series) -> None:
     st.caption(f"WGS84: {float(lat):.6f}, {float(lon):.6f}")
 
 
+def render_measurement_point_map(latitude: float, longitude: float) -> None:
+    point_df = pd.DataFrame({"lat": [float(latitude)], "lon": [float(longitude)]})
+    st.map(
+        point_df,
+        latitude="lat",
+        longitude="lon",
+        color="#0072BC",
+        size=38,
+        zoom=16,
+        width="stretch",
+        height=300,
+    )
+    st.caption(
+        f"Punto puntual de medición · WGS84: {float(latitude):.6f}, {float(longitude):.6f}"
+    )
+
+
 def get_review_repo() -> SupabaseReviewRepository | None:
     if not settings.supabase_configured:
         return None
@@ -292,6 +311,7 @@ def render_graph_for_review(
     review_repo: SupabaseReviewRepository | None,
 ) -> None:
     source = review.get("graph_source") or "none"
+
     if source == "manual":
         path = review.get("graph_storage_path")
         if not path:
@@ -305,6 +325,55 @@ def render_graph_for_review(
             render_html_graph(content, key=f"manual-{review.get('id', path)}")
         except Exception as exc:
             st.error(f"No fue posible recuperar el HTML desde Supabase: {exc}")
+        return
+
+    if source == "sharepoint_link":
+        original_url = str(review.get("graph_original_url") or "").strip()
+        if original_url:
+            st.link_button(
+                "Abrir vínculo original en Microsoft List / SharePoint",
+                original_url,
+                use_container_width=True,
+            )
+
+        cached_path = review.get("graph_storage_path")
+        if cached_path and review_repo is not None:
+            try:
+                content = review_repo.download_html(str(cached_path))
+                st.caption("Vista directa desde la copia de visualización almacenada en Supabase.")
+                render_html_graph(
+                    content,
+                    key=f"sharepoint-link-cache-{review.get('id', cached_path)}",
+                )
+                return
+            except Exception as exc:
+                st.warning(f"No fue posible abrir la copia HTML almacenada: {exc}")
+
+        item_id = review.get("sharepoint_item_id")
+        sp_repo = get_sp_repo()
+        if item_id and sp_repo is not None:
+            try:
+                filename, content = sp_repo.download_html_attachment(int(item_id))
+                st.caption(
+                    f"Vista recuperada por API desde Microsoft List ID {item_id} · {filename}"
+                )
+                render_html_graph(
+                    content,
+                    key=f"sharepoint-link-api-{item_id}-{review.get('id', '')}",
+                )
+                return
+            except Exception as exc:
+                st.warning(
+                    "El vínculo quedó guardado, pero la recuperación automática por API "
+                    f"no fue posible: {exc}"
+                )
+
+        st.info(
+            "El vínculo original está conservado. Para verlo directamente dentro de la ficha "
+            "sin API, adjunte también una copia del archivo HTML al registrar la revisión. "
+            "SharePoint puede forzar la descarga o requerir autenticación y por eso un iframe "
+            "directo al vínculo no es confiable."
+        )
         return
 
     if source == "sharepoint":
@@ -557,13 +626,48 @@ if page == "Revisión de equipo":
         )
         reviewed_by = st.text_input("Revisado por", placeholder="Nombre o usuario responsable")
 
+        st.markdown("#### Punto de medición puntual")
+        register_measurement_point = st.checkbox(
+            "Registrar un punto de medición distinto o complementario al macromedidor"
+        )
+        measurement_latitude_text = ""
+        measurement_longitude_text = ""
+        measurement_location_notes = ""
+        if register_measurement_point:
+            meter_lat = selected_row.get("LATITUD")
+            meter_lon = selected_row.get("LONGITUD")
+            if pd.notna(meter_lat) and pd.notna(meter_lon):
+                st.caption(
+                    f"Referencia del macromedidor: {float(meter_lat):.6f}, "
+                    f"{float(meter_lon):.6f}. Ingrese abajo el punto real de la medición."
+                )
+            p1, p2 = st.columns(2)
+            measurement_latitude_text = p1.text_input(
+                "Latitud WGS84",
+                placeholder="Ej.: 9.928100",
+            )
+            measurement_longitude_text = p2.text_input(
+                "Longitud WGS84",
+                placeholder="Ej.: -84.090700",
+            )
+            measurement_location_notes = st.text_input(
+                "Referencia del punto de medición",
+                placeholder="Ej.: válvula, hidrante, cámara o punto aguas abajo",
+            )
+
         st.markdown("#### Gráfico comparativo")
-        graph_options = ["Sin gráfico", "Cargar archivo HTML"]
+        graph_options = [
+            "Sin gráfico",
+            "Cargar archivo HTML",
+            "Vínculo MS List / SharePoint",
+        ]
         if settings.sharepoint_configured:
-            graph_options.insert(1, "Microsoft List")
-        graph_option = st.radio("Origen del gráfico", graph_options, horizontal=True)
+            graph_options.append("Microsoft List (API)")
+        graph_option = st.radio("Origen del gráfico", graph_options, horizontal=False)
 
         uploaded_html = None
+        sharepoint_cached_html = None
+        sharepoint_url = ""
         sharepoint_item_id = None
         sharepoint_file_name = None
 
@@ -581,7 +685,51 @@ if page == "Revisión de equipo":
                     for error in validation.errors:
                         st.error(error)
 
-        elif graph_option == "Microsoft List":
+        elif graph_option == "Vínculo MS List / SharePoint":
+            sharepoint_url = st.text_input(
+                "Hipervínculo del archivo HTML en Microsoft List / SharePoint",
+                placeholder="https://...sharepoint.com/.../Attachments/2324/grafico.html?web=1",
+            )
+            parsed_link = parse_sharepoint_attachment_url(sharepoint_url)
+            if sharepoint_url.strip():
+                if parsed_link is None:
+                    st.warning(
+                        "El vínculo debe ser HTTPS y pertenecer a un dominio *.sharepoint.com."
+                    )
+                else:
+                    if parsed_link.get("item_id"):
+                        st.caption(
+                            f"ID de Microsoft List detectado: {parsed_link['item_id']} · "
+                            f"Archivo: {parsed_link.get('file_name') or 'no identificado'}"
+                        )
+                    else:
+                        st.caption(
+                            "El vínculo se guardará, aunque no se pudo extraer automáticamente "
+                            "el ID del elemento."
+                        )
+
+            sharepoint_cached_html = st.file_uploader(
+                "Copia HTML para visualizar dentro del aplicativo (opcional)",
+                type=["html", "htm"],
+                key="sharepoint_cached_html",
+                help=(
+                    "El vínculo original siempre se conserva. Si adjunta aquí el mismo HTML, "
+                    "Supabase guarda una copia de visualización y la ficha puede abrirlo directamente "
+                    "sin descargarlo al escritorio."
+                ),
+            )
+            if sharepoint_cached_html:
+                validation = validate_html_file(
+                    sharepoint_cached_html.name,
+                    sharepoint_cached_html.getvalue(),
+                )
+                if validation.ok:
+                    status_badge("Copia HTML válida para visualización directa", "success")
+                else:
+                    for error in validation.errors:
+                        st.error(error)
+
+        elif graph_option == "Microsoft List (API)":
             sp_repo = get_sp_repo()
             if sp_repo is not None:
                 try:
@@ -632,6 +780,19 @@ if page == "Revisión de equipo":
             validation = validate_review(data)
             errors = list(validation.errors)
 
+            measurement_latitude = None
+            measurement_longitude = None
+            if register_measurement_point:
+                (
+                    measurement_latitude,
+                    measurement_longitude,
+                    coordinate_validation,
+                ) = parse_measurement_coordinates(
+                    measurement_latitude_text,
+                    measurement_longitude_text,
+                )
+                errors.extend(coordinate_validation.errors)
+
             graph_source = "none"
             graph_storage_path = None
 
@@ -645,7 +806,26 @@ if page == "Revisión de equipo":
                     errors.extend(html_validation.errors)
                     graph_source = "manual"
 
-            elif graph_option == "Microsoft List":
+            elif graph_option == "Vínculo MS List / SharePoint":
+                parsed_link = parse_sharepoint_attachment_url(sharepoint_url)
+                if not sharepoint_url.strip():
+                    errors.append("Ingrese el hipervínculo del archivo HTML en Microsoft List.")
+                elif parsed_link is None:
+                    errors.append(
+                        "El hipervínculo debe ser HTTPS y pertenecer a un dominio *.sharepoint.com."
+                    )
+                else:
+                    graph_source = "sharepoint_link"
+                    sharepoint_item_id = parsed_link.get("item_id")
+                    sharepoint_file_name = parsed_link.get("file_name")
+                    if sharepoint_cached_html is not None:
+                        html_validation = validate_html_file(
+                            sharepoint_cached_html.name,
+                            sharepoint_cached_html.getvalue(),
+                        )
+                        errors.extend(html_validation.errors)
+
+            elif graph_option == "Microsoft List (API)":
                 if sharepoint_item_id is None:
                     errors.append("Seleccione un ID de Microsoft List.")
                 else:
@@ -665,6 +845,16 @@ if page == "Revisión de equipo":
                                 equipment_key=equipment_key,
                                 filename=uploaded_html.name,
                                 content=uploaded_html.getvalue(),
+                            )
+
+                        if (
+                            graph_source == "sharepoint_link"
+                            and sharepoint_cached_html is not None
+                        ):
+                            graph_storage_path = review_repo.upload_html(
+                                equipment_key=equipment_key,
+                                filename=sharepoint_cached_html.name,
+                                content=sharepoint_cached_html.getvalue(),
                             )
 
                         if graph_source == "sharepoint" and sharepoint_item_id is not None:
@@ -709,6 +899,15 @@ if page == "Revisión de equipo":
                             "notes": notes.strip() or None,
                             "reviewed_by": reviewed_by.strip() or None,
                         }
+                        if graph_source == "sharepoint_link":
+                            payload["graph_original_url"] = sharepoint_url.strip()
+                        if register_measurement_point:
+                            payload["measurement_latitude"] = measurement_latitude
+                            payload["measurement_longitude"] = measurement_longitude
+                            payload["measurement_location_notes"] = (
+                                measurement_location_notes.strip() or None
+                            )
+
                         saved = review_repo.insert_review(payload)
                         st.success(
                             f"Revisión guardada correctamente. ID: {saved.get('id', 'registrado')}"
@@ -759,6 +958,18 @@ elif page == "Ficha e historial":
     with c1:
         st.markdown("#### Ubicación")
         render_meter_map(selected_row)
+
+        measurement_latitude = review.get("measurement_latitude")
+        measurement_longitude = review.get("measurement_longitude")
+        if measurement_latitude is not None and measurement_longitude is not None:
+            st.markdown("**Punto puntual de medición registrado en esta revisión**")
+            render_measurement_point_map(
+                float(measurement_latitude),
+                float(measurement_longitude),
+            )
+            if review.get("measurement_location_notes"):
+                st.caption(str(review.get("measurement_location_notes")))
+
         with st.expander("Atributos de la geodatabase guardados con la revisión", expanded=True):
             readonly_snapshot(review.get("geodatabase_snapshot") or snapshot)
 
@@ -771,6 +982,9 @@ elif page == "Ficha e historial":
             ("Espesor [mm]", review.get("wall_thickness_mm")),
             ("Distancia de transductores [mm]", review.get("transducer_distance_mm")),
             ("Calidad", review.get("measurement_quality")),
+            ("Latitud punto de medición", review.get("measurement_latitude")),
+            ("Longitud punto de medición", review.get("measurement_longitude")),
+            ("Referencia punto de medición", review.get("measurement_location_notes")),
             ("Último mantenimiento / revisión", review.get("last_maintenance_date")),
             ("Revisado por", review.get("reviewed_by")),
         ]
@@ -796,6 +1010,9 @@ elif page == "Ficha e historial":
         "is_ultrasonic",
         "last_maintenance_date",
         "graph_source",
+        "graph_original_url",
+        "measurement_latitude",
+        "measurement_longitude",
         "reviewed_by",
         "failures",
     ]
