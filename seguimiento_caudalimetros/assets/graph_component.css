@@ -28,3 +28,31 @@
 .plotly-figure + .plotly-figure {
   margin-top: 12px;
 }
+
+
+/* Barra Plotly horizontal y compacta, especialmente útil en pantalla grande. */
+.plotly-figure .modebar {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 2px !important;
+  top: 8px !important;
+  right: 8px !important;
+  left: auto !important;
+  max-width: calc(100% - 16px) !important;
+}
+
+.plotly-figure .modebar-group {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  margin-left: 2px !important;
+}
+
+.plotly-figure .modebar-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
