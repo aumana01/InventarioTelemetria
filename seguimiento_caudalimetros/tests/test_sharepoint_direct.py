@@ -1,7 +1,12 @@
+from types import SimpleNamespace
+
 import pytest
 
 import src.sharepoint_repository as sharepoint_module
-from src.sharepoint_repository import fetch_sharepoint_html_direct
+from src.sharepoint_repository import (
+    DelegatedSharePointRepository,
+    fetch_sharepoint_html_direct,
+)
 
 
 class FakeResponse:
@@ -82,3 +87,34 @@ def test_fetch_sharepoint_html_direct_detects_login_redirect(monkeypatch):
 def test_fetch_sharepoint_html_direct_rejects_other_hosts():
     with pytest.raises(ValueError):
         fetch_sharepoint_html_direct("https://example.com/grafico.html")
+
+
+def test_delegated_sharepoint_download_uses_user_bearer_token(monkeypatch):
+    captured = {}
+
+    def fake_get(url, headers=None, **kwargs):
+        captured["url"] = url
+        captured["headers"] = headers or {}
+        return FakeResponse(
+            url,
+            b"<!doctype html><html><body>grafico autenticado</body></html>",
+            status_code=200,
+        )
+
+    monkeypatch.setattr(sharepoint_module.requests, "get", fake_get)
+
+    settings = SimpleNamespace(
+        sharepoint_site_url="https://tenant.sharepoint.com/sites/demo",
+        sharepoint_list_title="Seguimiento",
+    )
+    repo = DelegatedSharePointRepository(settings, "TOKEN-USUARIO")
+    filename, content = repo.download_attachment_from_url(
+        "https://tenant.sharepoint.com/sites/demo/Lists/Seguimiento/"
+        "Attachments/2013/grafico_caudals.html?web=1"
+    )
+
+    assert filename == "grafico_caudals.html"
+    assert b"grafico autenticado" in content
+    assert captured["headers"]["Authorization"] == "Bearer TOKEN-USUARIO"
+    assert "items(2013)" in captured["url"]
+    assert "AttachmentFiles('grafico_caudals.html')/$value" in captured["url"]

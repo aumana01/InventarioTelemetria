@@ -22,7 +22,12 @@ from src.core import (
     validate_review,
 )
 from src.graph_renderer import render_html_graph
-from src.sharepoint_repository import SharePointListRepository, retrieve_sharepoint_html
+from src.sharepoint_repository import (
+    DelegatedSharePointRepository,
+    Microsoft365DeviceAuth,
+    SharePointListRepository,
+    retrieve_sharepoint_html,
+)
 from src.sql_repository import SqlMeterRepository
 from src.supabase_repository import SupabaseMeterRepository, SupabaseReviewRepository
 from src.ui import load_css, readonly_snapshot, review_summary, status_badge
@@ -138,9 +143,8 @@ def get_sharepoint_repo(current_settings: Settings) -> SharePointListRepository:
     return SharePointListRepository(current_settings)
 
 
-@st.cache_data(ttl=300, show_spinner=False)
-def cached_sharepoint_items(_repo: SharePointListRepository) -> list[dict[str, Any]]:
-    return _repo.list_items(limit=5000)
+def cached_sharepoint_items(repo: Any) -> list[dict[str, Any]]:
+    return repo.list_items(limit=5000)
 
 
 def first_nonempty(row: pd.Series, candidates: list[str]) -> str:
@@ -300,10 +304,111 @@ def get_review_repo() -> SupabaseReviewRepository | None:
     return get_supabase_repo(settings)
 
 
-def get_sp_repo() -> SharePointListRepository | None:
-    if not settings.sharepoint_configured:
-        return None
-    return get_sharepoint_repo(settings)
+def get_sp_repo() -> Any | None:
+    """Prioriza la sesión delegada del usuario y luego el acceso app-only."""
+    token = st.session_state.get("ms365_access_token")
+    if token:
+        return DelegatedSharePointRepository(settings, str(token))
+    if settings.sharepoint_configured:
+        return get_sharepoint_repo(settings)
+    return None
+
+
+def ms365_username() -> str:
+    return str(st.session_state.get("ms365_username") or "").strip()
+
+
+def clear_ms365_session() -> None:
+    for key in (
+        "ms365_access_token",
+        "ms365_username",
+        "ms365_device_flow",
+    ):
+        st.session_state.pop(key, None)
+
+
+@st.dialog("Acceso Microsoft 365")
+def microsoft365_login_dialog() -> None:
+    if not settings.sharepoint_user_login_configured:
+        st.warning(
+            "Para habilitar el inicio de sesión se requiere un Application (client) ID "
+            "de Microsoft Entra en la sección [sharepoint] de Secrets."
+        )
+        st.code(
+            '[sharepoint]\n'
+            'tenant_id = "..."\n'
+            'client_id = "..."\n'
+            'client_secret = ""',
+            language="toml",
+        )
+        return
+
+    if st.session_state.get("ms365_access_token"):
+        username = ms365_username() or "Usuario autenticado"
+        st.success(f"Sesión Microsoft 365 activa: {username}")
+        if st.button("Cerrar sesión Microsoft 365", use_container_width=True):
+            clear_ms365_session()
+            st.rerun()
+        return
+
+    try:
+        auth = Microsoft365DeviceAuth(settings)
+        flow = st.session_state.get("ms365_device_flow")
+        if not flow:
+            flow = auth.initiate()
+            st.session_state["ms365_device_flow"] = flow
+
+        st.write(
+            "El acceso se realiza directamente en Microsoft. "
+            "El aplicativo no solicita ni almacena su contraseña."
+        )
+
+        verification_url = (
+            flow.get("verification_uri_complete")
+            or flow.get("verification_uri")
+            or "https://microsoft.com/devicelogin"
+        )
+        user_code = str(flow.get("user_code") or "")
+
+        if user_code:
+            st.markdown("**Código de Microsoft:**")
+            st.code(user_code)
+
+        st.link_button(
+            "Abrir inicio de sesión oficial de Microsoft",
+            str(verification_url),
+            use_container_width=True,
+        )
+        st.caption(
+            "Complete el inicio de sesión en Microsoft 365 y luego vuelva a este diálogo."
+        )
+
+        if st.button(
+            "Ya inicié sesión · completar acceso",
+            type="primary",
+            use_container_width=True,
+        ):
+            with st.spinner("Validando sesión con Microsoft..."):
+                result = auth.complete(flow)
+
+            st.session_state["ms365_access_token"] = result["access_token"]
+            claims = result.get("id_token_claims") or {}
+            st.session_state["ms365_username"] = (
+                claims.get("preferred_username")
+                or claims.get("upn")
+                or claims.get("name")
+                or "Usuario Microsoft 365"
+            )
+            st.session_state.pop("ms365_device_flow", None)
+            st.success("Inicio de sesión completado.")
+            st.rerun()
+
+        if st.button("Generar un código nuevo", use_container_width=True):
+            st.session_state.pop("ms365_device_flow", None)
+            st.rerun()
+
+    except Exception as exc:
+        st.error(f"No fue posible iniciar sesión con Microsoft 365: {exc}")
 
 
 def render_graph_for_review(
@@ -668,7 +773,7 @@ if page == "Revisión de equipo":
             "Cargar archivo HTML",
             "Vínculo MS List / SharePoint",
         ]
-        if settings.sharepoint_configured:
+        if settings.sharepoint_configured or settings.sharepoint_user_login_configured:
             graph_options.append("Microsoft List (API)")
         graph_option = st.radio("Origen del gráfico", graph_options, horizontal=False)
 
@@ -717,9 +822,40 @@ if page == "Revisión de equipo":
 
             st.caption(
                 "Al guardar, el aplicativo intentará recuperar automáticamente el HTML del vínculo "
-                "y copiarlo a Supabase. Si SharePoint exige autenticación y la API no está configurada, "
-                "puede usar la carga manual como respaldo."
+                "y copiarlo a Supabase. Si SharePoint exige autenticación, puede iniciar sesión "
+                "con su cuenta Microsoft 365 para que la descarga se haga con sus permisos."
             )
+
+            if st.session_state.get("ms365_access_token"):
+                username = ms365_username() or "Usuario Microsoft 365"
+                st.success(f"Microsoft 365 conectado: {username}")
+                lc1, lc2 = st.columns(2)
+                if lc1.button(
+                    "Cambiar usuario Microsoft",
+                    key="ms365-change-user",
+                    use_container_width=True,
+                ):
+                    clear_ms365_session()
+                    microsoft365_login_dialog()
+                if lc2.button(
+                    "Cerrar sesión Microsoft",
+                    key="ms365-signout-link",
+                    use_container_width=True,
+                ):
+                    clear_ms365_session()
+                    st.rerun()
+            elif settings.sharepoint_user_login_configured:
+                if st.button(
+                    "Iniciar sesión con Microsoft 365",
+                    key="ms365-login-link",
+                    use_container_width=True,
+                ):
+                    microsoft365_login_dialog()
+            else:
+                st.info(
+                    "El acceso directo a SharePoint está protegido. Para habilitar el login "
+                    "de usuario hace falta configurar client_id de una aplicación Microsoft Entra."
+                )
             sharepoint_cached_html = st.file_uploader(
                 "Copia HTML de respaldo (opcional)",
                 type=["html", "htm"],
@@ -742,7 +878,14 @@ if page == "Revisión de equipo":
 
         elif graph_option == "Microsoft List (API)":
             sp_repo = get_sp_repo()
-            if sp_repo is not None:
+            if sp_repo is None and settings.sharepoint_user_login_configured:
+                if st.button(
+                    "Iniciar sesión con Microsoft 365",
+                    key="ms365-login-api",
+                    use_container_width=True,
+                ):
+                    microsoft365_login_dialog()
+            elif sp_repo is not None:
                 try:
                     items = cached_sharepoint_items(sp_repo)
                     if items:
@@ -1063,6 +1206,18 @@ elif page == "Ficha e historial":
         st.markdown("#### Gráfico comparativo de mediciones")
 
         if review.get("graph_source") == "sharepoint_link" and review.get("graph_original_url"):
+            if st.session_state.get("ms365_access_token"):
+                st.caption(
+                    f"Microsoft 365 conectado: {ms365_username() or 'Usuario autenticado'}"
+                )
+            elif settings.sharepoint_user_login_configured:
+                if st.button(
+                    "Iniciar sesión Microsoft 365 para acceder a SharePoint",
+                    key=f"ms365-login-history-{review.get('id')}",
+                    use_container_width=True,
+                ):
+                    microsoft365_login_dialog()
+
             if st.button(
                 "Reextraer HTML desde vínculo",
                 key=f"repair-sharepoint-{review.get('id')}",
@@ -1181,8 +1336,16 @@ else:
                     "Configurado": settings.supabase_meters_table,
                 },
                 {
-                    "Componente": "Microsoft List / SharePoint REST",
+                    "Componente": "Microsoft List / SharePoint REST app-only",
                     "Configurado": settings.sharepoint_configured,
+                },
+                {
+                    "Componente": "Login usuario Microsoft 365",
+                    "Configurado": settings.sharepoint_user_login_configured,
+                },
+                {
+                    "Componente": "Sesión Microsoft 365 activa",
+                    "Configurado": bool(st.session_state.get("ms365_access_token")),
                 },
                 {"Componente": "Modo demo", "Configurado": settings.demo_mode},
                 {

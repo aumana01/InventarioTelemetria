@@ -144,6 +144,150 @@ def fetch_sharepoint_html_direct(url: str) -> tuple[str, bytes]:
     )
 
 
+class Microsoft365DeviceAuth:
+    """Autenticación delegada: el usuario inicia sesión directamente con Microsoft."""
+
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        if not settings.sharepoint_user_login_configured:
+            raise RuntimeError(
+                "Para iniciar sesión con Microsoft 365 configure tenant_id y client_id."
+            )
+
+    def _app(self):
+        try:
+            import msal
+        except ImportError as exc:
+            raise RuntimeError("El paquete msal no está instalado.") from exc
+
+        authority = f"https://login.microsoftonline.com/{self.settings.ms_tenant_id}"
+        return msal.PublicClientApplication(
+            client_id=self.settings.ms_client_id,
+            authority=authority,
+        )
+
+    def scopes(self) -> list[str]:
+        host = self.settings.sharepoint_site_url.split("/sites/")[0]
+        return [f"{host}/AllSites.Read"]
+
+    def initiate(self) -> dict[str, Any]:
+        flow = self._app().initiate_device_flow(scopes=self.scopes())
+        if "user_code" not in flow:
+            raise RuntimeError(
+                "Microsoft no pudo iniciar el flujo de acceso: "
+                + str(flow.get("error_description") or flow.get("error") or flow)
+            )
+        return flow
+
+    def complete(self, flow: dict[str, Any]) -> dict[str, Any]:
+        result = self._app().acquire_token_by_device_flow(flow)
+        if "access_token" not in result:
+            raise RuntimeError(
+                "No fue posible completar el inicio de sesión: "
+                + str(
+                    result.get("error_description")
+                    or result.get("error")
+                    or "sin detalle"
+                )
+            )
+        return result
+
+
+class DelegatedSharePointRepository:
+    """SharePoint REST actuando con los permisos del usuario autenticado."""
+
+    def __init__(self, settings: Settings, access_token: str):
+        self.settings = settings
+        self.access_token = str(access_token or "").strip()
+        if not self.access_token:
+            raise RuntimeError("No existe un token de usuario de Microsoft 365.")
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self.access_token}",
+            "Accept": "application/json;odata=nometadata",
+        }
+
+    def _list_base(self) -> str:
+        title = self.settings.sharepoint_list_title.replace("'", "''")
+        return (
+            f"{self.settings.sharepoint_site_url}/_api/web/lists/"
+            f"getbytitle('{title}')"
+        )
+
+    def list_items(self, limit: int = 5000) -> list[dict[str, Any]]:
+        url = f"{self._list_base()}/items?$select=Id,Title&$top={int(limit)}"
+        response = requests.get(url, headers=self._headers(), timeout=25)
+        if response.status_code in {401, 403}:
+            raise PermissionError(
+                "La sesión Microsoft 365 no tiene acceso a la lista o expiró "
+                f"(HTTP {response.status_code})."
+            )
+        response.raise_for_status()
+        rows = response.json().get("value", [])
+        return sorted(rows, key=lambda x: int(x.get("Id", 0)), reverse=True)
+
+    def list_attachments(self, item_id: int) -> list[dict[str, Any]]:
+        url = (
+            f"{self._list_base()}/items({int(item_id)})/AttachmentFiles"
+            "?$select=FileName,ServerRelativeUrl,TimeLastModified"
+        )
+        response = requests.get(url, headers=self._headers(), timeout=25)
+        if response.status_code in {401, 403}:
+            raise PermissionError(
+                "La sesión Microsoft 365 no tiene acceso a los adjuntos o expiró "
+                f"(HTTP {response.status_code})."
+            )
+        response.raise_for_status()
+        return response.json().get("value", [])
+
+    def download_html_attachment(self, item_id: int) -> tuple[str, bytes]:
+        attachments = self.list_attachments(item_id)
+        selected = choose_html_attachment(attachments)
+        if not selected:
+            raise FileNotFoundError(
+                f"El ID {item_id} no contiene adjuntos .html/.htm en Microsoft List."
+            )
+        return self.download_attachment_by_name(
+            int(item_id),
+            str(selected["FileName"]),
+        )
+
+    def download_attachment_by_name(
+        self,
+        item_id: int,
+        filename: str,
+    ) -> tuple[str, bytes]:
+        clean_filename = str(filename or "").strip()
+        if not clean_filename:
+            raise ValueError("No se indicó el nombre del adjunto de SharePoint.")
+        escaped = clean_filename.replace("'", "''")
+        url = (
+            f"{self._list_base()}/items({int(item_id)})/"
+            f"AttachmentFiles('{escaped}')/$value"
+        )
+        response = requests.get(url, headers=self._headers(), timeout=40)
+        if response.status_code in {401, 403}:
+            raise PermissionError(
+                "La sesión Microsoft 365 no tiene acceso al archivo o expiró "
+                f"(HTTP {response.status_code})."
+            )
+        response.raise_for_status()
+        return clean_filename, response.content
+
+    def download_attachment_from_url(self, url: str) -> tuple[str, bytes]:
+        parsed_link = parse_sharepoint_attachment_url(url)
+        if not parsed_link:
+            raise ValueError("No se pudo interpretar el vínculo de SharePoint.")
+        item_id = parsed_link.get("item_id")
+        filename = parsed_link.get("file_name")
+        if item_id is None or not filename:
+            raise ValueError(
+                "El vínculo no contiene /Attachments/{id}/{archivo}."
+            )
+        return self.download_attachment_by_name(int(item_id), str(filename))
+
+
 class SharePointListRepository:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -252,7 +396,7 @@ class SharePointListRepository:
 
 def retrieve_sharepoint_html(
     url: str,
-    api_repository: SharePointListRepository | None = None,
+    api_repository: Any | None = None,
 ) -> tuple[str, bytes, str]:
     """Obtiene el HTML real: acceso directo primero y REST autenticado como respaldo."""
     direct_error: Exception | None = None
