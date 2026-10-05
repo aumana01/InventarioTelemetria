@@ -26,16 +26,26 @@ def transform_crtm05_to_wgs84(meters: pd.DataFrame) -> pd.DataFrame:
     missing = required.difference(meters.columns)
     if missing:
         raise ValueError(f"Faltan columnas de coordenadas: {sorted(missing)}")
-    clean = meters.dropna(subset=["X_CRTM05", "Y_CRTM05"]).copy()
-    transformer = Transformer.from_crs("EPSG:5367", "EPSG:4326", always_xy=True)
-    lon, lat = transformer.transform(
-        clean["X_CRTM05"].astype(float).tolist(),
-        clean["Y_CRTM05"].astype(float).tolist(),
-    )
-    clean["LONGITUD"] = lon
-    clean["LATITUD"] = lat
-    clean["EPSG_WGS84"] = 4326
-    return clean
+    result = meters.copy()
+    result["LONGITUD"] = float("nan")
+    result["LATITUD"] = float("nan")
+    result["EPSG_WGS84"] = pd.Series(pd.NA, index=result.index, dtype="Int64")
+
+    x = pd.to_numeric(result["X_CRTM05"], errors="coerce")
+    y = pd.to_numeric(result["Y_CRTM05"], errors="coerce")
+    valid_coordinates = x.notna() & y.notna()
+
+    if valid_coordinates.any():
+        transformer = Transformer.from_crs("EPSG:5367", "EPSG:4326", always_xy=True)
+        lon, lat = transformer.transform(
+            x.loc[valid_coordinates].astype(float).tolist(),
+            y.loc[valid_coordinates].astype(float).tolist(),
+        )
+        result.loc[valid_coordinates, "LONGITUD"] = lon
+        result.loc[valid_coordinates, "LATITUD"] = lat
+        result.loc[valid_coordinates, "EPSG_WGS84"] = 4326
+
+    return result
 
 
 class SqlMeterRepository:
@@ -95,7 +105,6 @@ class SqlMeterRepository:
                     SHAPE.STY AS Y_CRTM05,
                     SHAPE.STSrid AS SRID_ORIGINAL
                 FROM {schema_q}.{table_q}
-                WHERE SHAPE IS NOT NULL
             """
             meters = pd.read_sql_query(query, conn)
 
