@@ -130,16 +130,17 @@ class Repository:
             .eq("graph_source", "sharepoint_link")
             .not_.is_("graph_original_url", "null")
             .order("reviewed_at", desc=False)
-            .limit(limit)
+            .limit(max(limit, 1000))
             .execute()
         )
         rows = getattr(result, "data", None) or []
-        return [
+        pending = [
             row
             for row in rows
             if not row.get("graph_storage_path")
             or str(row.get("graph_format") or "html") != COMPACT_FORMAT
         ]
+        return pending[:limit]
 
     def upload(
         self,
