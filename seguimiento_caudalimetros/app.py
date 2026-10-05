@@ -430,6 +430,7 @@ def _maintenance_badge(
 def render_maintenance_section(
     prefix: str,
     current: dict[str, Any] | None = None,
+    equipment_type: str = "No definido",
 ) -> dict[str, Any]:
     current = current or {}
     st.markdown("### ASPECTOS DE MANTENIMIENTO")
@@ -438,17 +439,36 @@ def render_maintenance_section(
         "Verde = vigente; rojo = vencido, sin fecha o condición no satisfactoria."
     )
 
+    gel_applicable = st.checkbox(
+        "Aplica cambio de gel",
+        value=bool(
+            current.get("maintenance_gel_applicable")
+            if current.get("maintenance_gel_applicable") is not None
+            else True
+        ),
+        key=f"{prefix}-maintenance-gel-applicable",
+    )
     c1, c2 = st.columns([0.72, 0.28])
     gel_date = c1.date_input(
         "Cambio de gel",
         value=_review_date_value(current.get("maintenance_gel_date")),
         max_value=date.today(),
+        disabled=not gel_applicable,
         key=f"{prefix}-maintenance-gel",
     )
     with c2:
         st.caption("Vigencia: 6 meses")
-        _maintenance_badge(gel_date, 6)
+        _maintenance_badge(gel_date, 6, applicable=gel_applicable)
 
+    alignment_applicable = st.checkbox(
+        "Aplica alineación y sujeción de transductores",
+        value=bool(
+            current.get("maintenance_transducers_alignment_applicable")
+            if current.get("maintenance_transducers_alignment_applicable") is not None
+            else True
+        ),
+        key=f"{prefix}-maintenance-alignment-applicable",
+    )
     c1, c2 = st.columns([0.72, 0.28])
     alignment_date = c1.date_input(
         "Transductores alineados y con buena sujeción",
@@ -456,11 +476,16 @@ def render_maintenance_section(
             current.get("maintenance_transducers_alignment_date")
         ),
         max_value=date.today(),
+        disabled=not alignment_applicable,
         key=f"{prefix}-maintenance-alignment",
     )
     with c2:
         st.caption("Vigencia: 6 meses")
-        _maintenance_badge(alignment_date, 6)
+        _maintenance_badge(
+            alignment_date,
+            6,
+            applicable=alignment_applicable,
+        )
 
     download_applicable = st.checkbox(
         "Aplica descarga de datos internos del equipo",
@@ -503,6 +528,48 @@ def render_maintenance_section(
         st.caption("Vigencia: 12 meses")
         _maintenance_badge(simultaneous_date, 12)
 
+    insertion_cleaning_date = None
+    if equipment_type == "Inserción":
+        c1, c2 = st.columns([0.72, 0.28])
+        insertion_cleaning_date = c1.date_input(
+            "Limpieza del sensor de inserción",
+            value=_review_date_value(
+                current.get("maintenance_insertion_sensor_cleaning_date")
+            ),
+            max_value=date.today(),
+            key=f"{prefix}-maintenance-insertion-cleaning",
+        )
+        with c2:
+            st.caption("Vigencia: 12 meses")
+            _maintenance_badge(insertion_cleaning_date, 12)
+
+    solar_applicable = st.checkbox(
+        "Aplica limpieza de panel solar y gabinete",
+        value=bool(
+            current.get("maintenance_solar_panel_applicable")
+            if current.get("maintenance_solar_panel_applicable") is not None
+            else False
+        ),
+        key=f"{prefix}-maintenance-solar-applicable",
+    )
+    c1, c2 = st.columns([0.72, 0.28])
+    solar_cleaning_date = c1.date_input(
+        "Limpieza de panel solar y gabinete",
+        value=_review_date_value(
+            current.get("maintenance_solar_panel_cleaning_date")
+        ),
+        max_value=date.today(),
+        disabled=not solar_applicable,
+        key=f"{prefix}-maintenance-solar-cleaning",
+    )
+    with c2:
+        st.caption("Vigencia: 12 meses")
+        _maintenance_badge(
+            solar_cleaning_date,
+            12,
+            applicable=solar_applicable,
+        )
+
     st.markdown("**Funcionamiento en SCADA**")
     s1, s2, s3 = st.columns([0.34, 0.38, 0.28])
     scada_choice = s1.selectbox(
@@ -526,9 +593,17 @@ def render_maintenance_section(
         )
 
     return {
-        "maintenance_gel_date": gel_date.isoformat() if gel_date else None,
+        "maintenance_gel_applicable": bool(gel_applicable),
+        "maintenance_gel_date": (
+            gel_date.isoformat() if gel_applicable and gel_date else None
+        ),
+        "maintenance_transducers_alignment_applicable": bool(
+            alignment_applicable
+        ),
         "maintenance_transducers_alignment_date": (
-            alignment_date.isoformat() if alignment_date else None
+            alignment_date.isoformat()
+            if alignment_applicable and alignment_date
+            else None
         ),
         "maintenance_internal_download_applicable": bool(download_applicable),
         "maintenance_internal_download_date": (
@@ -539,6 +614,17 @@ def render_maintenance_section(
         "maintenance_simultaneous_installation_date": (
             simultaneous_date.isoformat() if simultaneous_date else None
         ),
+        "maintenance_insertion_sensor_cleaning_date": (
+            insertion_cleaning_date.isoformat()
+            if equipment_type == "Inserción" and insertion_cleaning_date
+            else None
+        ),
+        "maintenance_solar_panel_applicable": bool(solar_applicable),
+        "maintenance_solar_panel_cleaning_date": (
+            solar_cleaning_date.isoformat()
+            if solar_applicable and solar_cleaning_date
+            else None
+        ),
         "maintenance_scada_working": _yes_no_value(scada_choice),
         "maintenance_scada_check_date": (
             scada_date.isoformat() if scada_date else None
@@ -546,13 +632,16 @@ def render_maintenance_section(
     }
 
 
-def render_data_section(
+def render_data_checks(
     prefix: str,
     current: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     current = current or {}
-    st.markdown("### ASPECTOS DE DATOS")
-    st.caption("Registro de disponibilidad del dato. Esta sección no utiliza semáforo.")
+    st.markdown("#### Disponibilidad y visualización de datos")
+    st.caption(
+        "Estos controles forman parte del seguimiento de reparación/mantenimiento "
+        "y se registran con Sí/No/Sin verificar + fecha, sin semáforo."
+    )
 
     fields = [
         (
@@ -658,7 +747,68 @@ def render_repairs_section(
 
     payload["repair_spare_part_required"] = bool(spare_required)
     payload["repair_spare_part_detail"] = spare_detail.strip() or None
+    payload.update(render_data_checks(prefix, current))
     return payload
+
+
+def render_control_general_equipment(
+    prefix: str,
+    current: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    current = current or {}
+
+    current_type = str(current.get("equipment_type") or "No definido")
+    if current_type == "No definido" and current.get("is_ultrasonic"):
+        current_type = "Ultrasónico"
+
+    choices = [
+        "Seleccione tipo de equipo",
+        "Ultrasónico",
+        "Electromagnético",
+        "Inserción",
+        "Canal Abierto",
+    ]
+    current_choice = (
+        current_type if current_type in choices[1:] else choices[0]
+    )
+    equipment_type_choice = st.selectbox(
+        "Tipo de equipo",
+        options=choices,
+        index=choices.index(current_choice),
+        key=f"{prefix}-control-equipment-type",
+    )
+    equipment_type = (
+        "No definido"
+        if equipment_type_choice == "Seleccione tipo de equipo"
+        else equipment_type_choice
+    )
+
+    equipment_serial = st.text_input(
+        "Número de serie del equipo",
+        value=str(current.get("equipment_serial") or ""),
+        key=f"{prefix}-equipment-serial",
+    )
+
+    transducer_serial = None
+    if equipment_type == "Ultrasónico":
+        transducer_serial = (
+            st.text_input(
+                "Número de serie de transductores",
+                value=str(current.get("transducer_serial") or ""),
+                key=f"{prefix}-transducer-serial-control",
+            ).strip()
+            or None
+        )
+    else:
+        st.caption(
+            "Número de serie de transductores: no aplica para el tipo de equipo seleccionado."
+        )
+
+    return {
+        "equipment_type": equipment_type,
+        "equipment_serial": equipment_serial.strip() or None,
+        "transducer_serial": transducer_serial,
+    }
 
 
 def render_equipment_generalities(
