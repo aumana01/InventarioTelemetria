@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -149,15 +150,101 @@ def first_nonempty(row: pd.Series, candidates: list[str]) -> str:
     return ""
 
 
-def meter_label(row: pd.Series, key_column: str) -> str:
-    key = str(row.get(key_column, ""))
-    name = first_nonempty(
+def normalized_header(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(value).lower())
+
+
+def find_column(columns: list[str], candidates: list[str]) -> str | None:
+    by_normalized = {normalized_header(column): column for column in columns}
+    for candidate in candidates:
+        found = by_normalized.get(normalized_header(candidate))
+        if found:
+            return found
+    return None
+
+
+def meter_system(row: pd.Series, system_column: str | None = None) -> str:
+    if system_column and system_column in row.index:
+        value = row.get(system_column)
+        if pd.notna(value) and str(value).strip():
+            return str(value).strip()
+    return first_nonempty(
         row,
-        ["Nombre", "NOMBRE", "DESCRIPCION", "Descripción", "Descripcion", "UBICACION", "Ubicación"],
+        [
+            "Sistema_De_Abastecimiento",
+            "SISTEMA_DE_ABASTECIMIENTO",
+            "Sistema de Abastecimiento",
+            "Código_Sistema",
+            "Codigo_Sistema",
+            "CODIGO_SISTEMA",
+            "Sistema",
+            "SISTEMA",
+            "NOMBRE_SISTEMA",
+            "Nombre_Sistema",
+        ],
     )
-    system = first_nonempty(row, ["Sistema", "SISTEMA", "NOMBRE_SISTEMA", "Nombre_Sistema"])
-    tail = " — ".join(x for x in [name, system] if x)
-    return f"{key}{' — ' + tail if tail else ''}"
+
+
+def meter_name(row: pd.Series, name_column: str | None = None) -> str:
+    if name_column and name_column in row.index:
+        value = row.get(name_column)
+        if pd.notna(value) and str(value).strip():
+            return str(value).strip()
+    return first_nonempty(
+        row,
+        [
+            "Nombre_Caudalimetro",
+            "NOMBRE_CAUDALIMETRO",
+            "Nombre del Caudalímetro",
+            "Nombre_Equipo",
+            "NOMBRE_EQUIPO",
+            "Nombre",
+            "NOMBRE",
+            "DESCRIPCION",
+            "Descripción",
+            "Descripcion",
+            "UBICACION",
+            "Ubicación",
+        ],
+    )
+
+
+def meter_label(
+    row: pd.Series,
+    key_column: str,
+    system_column: str | None = None,
+    name_column: str | None = None,
+) -> str:
+    system = meter_system(row, system_column)
+    name = meter_name(row, name_column)
+    parts = [value for value in [system, name] if value]
+    if parts:
+        return " — ".join(parts)
+    return f"Caudalímetro (ID interno {row.get(key_column, '')})"
+
+
+def search_normalized(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(value).lower())
+
+
+def meter_matches_search(
+    row: pd.Series,
+    query: str,
+    system_column: str | None,
+    name_column: str | None,
+) -> bool:
+    query = str(query or "").strip()
+    if not query:
+        return True
+    system = meter_system(row, system_column)
+    name = meter_name(row, name_column)
+    plain_query = query.lower()
+    combined = f"{system} {name}".lower()
+    if plain_query in combined:
+        return True
+    compact_query = search_normalized(query)
+    compact_combined = search_normalized(f"{system} {name}")
+    return bool(compact_query and compact_query in compact_combined)
 
 
 def render_meter_map(row: pd.Series) -> None:
@@ -275,16 +362,111 @@ page = st.sidebar.radio(
     ["Revisión de equipo", "Ficha e historial", "Diagnóstico"],
 )
 
+columns = [str(column) for column in meters.columns]
+system_column = find_column(
+    columns,
+    [
+        "Sistema_De_Abastecimiento",
+        "Sistema de Abastecimiento",
+        "SISTEMA_DE_ABASTECIMIENTO",
+        "Código_Sistema",
+        "Codigo_Sistema",
+        "CODIGO_SISTEMA",
+        "Sistema",
+        "SISTEMA",
+        "NOMBRE_SISTEMA",
+    ],
+)
+name_column = find_column(
+    columns,
+    [
+        "Nombre_Caudalimetro",
+        "Nombre del Caudalímetro",
+        "NOMBRE_CAUDALIMETRO",
+        "Nombre_Equipo",
+        "NOMBRE_EQUIPO",
+        "Nombre",
+        "NOMBRE",
+        "DESCRIPCION",
+        "Descripción",
+        "UBICACION",
+    ],
+)
+
+st.sidebar.markdown("### Buscar equipo")
+search_text = st.sidebar.text_input(
+    "Sistema o nombre",
+    placeholder="Ej.: MEA01, Tres Ríos, Guadalupe",
+)
+
+filtered_meters = meters.copy()
+if system_column:
+    system_values = sorted(
+        {
+            str(value).strip()
+            for value in meters[system_column].dropna().tolist()
+            if str(value).strip()
+        },
+        key=lambda value: search_normalized(value),
+    )
+    selected_system = st.sidebar.selectbox(
+        "Sistema de Abastecimiento",
+        options=["Todos"] + system_values,
+    )
+    if selected_system != "Todos":
+        filtered_meters = filtered_meters[
+            filtered_meters[system_column].astype(str).str.strip() == selected_system
+        ]
+else:
+    st.sidebar.caption(
+        "No se identificó una columna específica de Sistema de Abastecimiento."
+    )
+
+if search_text.strip():
+    mask = filtered_meters.apply(
+        lambda row: meter_matches_search(
+            row,
+            search_text,
+            system_column,
+            name_column,
+        ),
+        axis=1,
+    )
+    filtered_meters = filtered_meters[mask]
+
+if filtered_meters.empty:
+    st.sidebar.warning("No se encontraron caudalímetros con ese sistema o nombre.")
+    st.stop()
+
+candidate_indices = sorted(
+    filtered_meters.index.tolist(),
+    key=lambda idx: search_normalized(
+        meter_label(
+            meters.loc[idx],
+            key_column,
+            system_column,
+            name_column,
+        )
+    ),
+)
+
 selected_index = st.sidebar.selectbox(
-    "Caudalímetro",
-    options=list(meters.index),
-    format_func=lambda idx: meter_label(meters.loc[idx], key_column),
+    "Caudalímetro / nombre",
+    options=candidate_indices,
+    format_func=lambda idx: meter_label(
+        meters.loc[idx],
+        key_column,
+        system_column,
+        name_column,
+    ),
 )
 selected_row = meters.loc[selected_index]
 equipment_key = str(selected_row.get(key_column))
+selected_system_name = meter_system(selected_row, system_column)
+selected_meter_name = meter_name(selected_row, name_column)
 snapshot = snapshot_from_row(selected_row.to_dict())
 
-st.sidebar.caption(f"Clave utilizada: {key_column}")
+st.sidebar.caption(f"Resultados: {len(filtered_meters)} equipo(s)")
 if st.sidebar.button("Actualizar datos"):
     load_meters.clear()
     st.rerun()
@@ -309,7 +491,9 @@ if page == "Revisión de equipo":
 
     with right:
         st.subheader("Formulario de revisión")
-        st.markdown(f"**Equipo:** {equipment_key}")
+        if selected_system_name:
+            st.markdown(f"**Sistema de Abastecimiento:** {selected_system_name}")
+        st.markdown(f"**Equipo:** {selected_meter_name or 'Sin nombre registrado'}")
 
         rectification_status = st.radio(
             "¿El equipo se ha logrado rectificar con otro equipo de forma simultánea?",
@@ -479,7 +663,12 @@ if page == "Revisión de equipo":
 
                         payload = {
                             "equipment_key": equipment_key,
-                            "equipment_label": meter_label(selected_row, key_column),
+                            "equipment_label": meter_label(
+                                selected_row,
+                                key_column,
+                                system_column,
+                                name_column,
+                            ),
                             "sql_key_field": key_column,
                             "geodatabase_snapshot": snapshot,
                             "rectification_status": rectification_status,
@@ -524,7 +713,13 @@ elif page == "Ficha e historial":
         st.error(f"No fue posible consultar las revisiones en Supabase: {exc}")
         st.stop()
 
-    st.subheader(f"Ficha de revisión · {equipment_key}")
+    ficha_title = meter_label(
+        selected_row,
+        key_column,
+        system_column,
+        name_column,
+    )
+    st.subheader(f"Ficha de revisión · {ficha_title}")
     if not reviews:
         review_summary(None)
         st.stop()
