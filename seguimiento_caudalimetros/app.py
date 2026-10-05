@@ -1149,6 +1149,12 @@ def edit_review_dialog(
         "Aquí puede corregir la información registrada en la revisión."
     )
 
+    st.markdown("### CONTROL GENERAL DE LA REVISIÓN")
+    control_fields = render_control_general_equipment(
+        f"edit-{review_id}",
+        review,
+    )
+
     rectification_status = st.radio(
         "Rectificación",
         options=list(RECTIFICATION_VALUES),
@@ -1163,10 +1169,6 @@ def edit_review_dialog(
             key=f"edit-rectification-equipment-{review_id}",
         )
 
-    equipment_fields = render_equipment_generalities(
-        f"edit-{review_id}",
-        review,
-    )
     measurement_quality = st.selectbox(
         "Calidad de medición",
         options=list(QUALITY_VALUES),
@@ -1185,12 +1187,6 @@ def edit_review_dialog(
         value=str(review.get("reviewed_by") or ""),
         key=f"edit-reviewed-by-{review_id}",
     )
-    failures = st.text_area(
-        "Fallas que ha presentado el equipo",
-        value=str(review.get("failures") or ""),
-        height=100,
-        key=f"edit-failures-{review_id}",
-    )
     notes = st.text_area(
         "Observaciones adicionales",
         value=str(review.get("notes") or ""),
@@ -1201,13 +1197,15 @@ def edit_review_dialog(
     maintenance_fields = render_maintenance_section(
         f"edit-{review_id}",
         review,
-    )
-    data_fields = render_data_section(
-        f"edit-{review_id}",
-        review,
+        equipment_type=control_fields["equipment_type"],
     )
     repair_fields = render_repairs_section(
         f"edit-{review_id}",
+        review,
+    )
+    equipment_fields = render_equipment_generalities(
+        f"edit-{review_id}",
+        control_fields["equipment_type"],
         review,
     )
 
@@ -1311,6 +1309,8 @@ def edit_review_dialog(
             "measurement_quality": measurement_quality,
         }
         errors = list(validate_review(validation_data).errors)
+        if control_fields.get("equipment_type") == "No definido":
+            errors.append("Seleccione el tipo de equipo.")
         if (
             repair_fields.get("repair_spare_part_required")
             and not repair_fields.get("repair_spare_part_detail")
@@ -1399,7 +1399,6 @@ def edit_review_dialog(
                     if last_maintenance_date
                     else None
                 ),
-                "failures": failures.strip() or None,
                 "notes": notes.strip() or None,
                 "reviewed_by": reviewed_by.strip() or None,
                 "measurement_latitude": (
@@ -1419,9 +1418,9 @@ def edit_review_dialog(
                 "sharepoint_item_id": sharepoint_item_id,
                 "sharepoint_file_name": sharepoint_file_name,
             }
+            payload.update(control_fields)
             payload.update(equipment_fields)
             payload.update(maintenance_fields)
-            payload.update(data_fields)
             payload.update(repair_fields)
 
             review_repo.update_review(review_id, payload)
@@ -1760,6 +1759,8 @@ if page == "Revisión de equipo":
         st.markdown(f"**Equipo:** {selected_meter_name or 'Sin nombre registrado'}")
 
         st.markdown("### CONTROL GENERAL DE LA REVISIÓN")
+        control_fields = render_control_general_equipment("new")
+
         rectification_status = st.radio(
             "¿El equipo se ha logrado rectificar con otro equipo de forma simultánea?",
             options=list(RECTIFICATION_VALUES),
@@ -1783,17 +1784,17 @@ if page == "Revisión de equipo":
             value=None,
             max_value=date.today(),
         )
-        failures = st.text_area(
-            "Fallas que ha presentado el equipo",
-            placeholder="Describa fallas, intermitencias, errores, desviaciones u observaciones técnicas.",
-            height=120,
-        )
         reviewed_by = st.text_input("Revisado por", placeholder="Nombre o usuario responsable")
 
-        maintenance_fields = render_maintenance_section("new")
-        data_fields = render_data_section("new")
+        maintenance_fields = render_maintenance_section(
+            "new",
+            equipment_type=control_fields["equipment_type"],
+        )
         repair_fields = render_repairs_section("new")
-        equipment_fields = render_equipment_generalities("new")
+        equipment_fields = render_equipment_generalities(
+            "new",
+            control_fields["equipment_type"],
+        )
 
         st.markdown("### PUNTO DE MEDICIÓN PUNTUAL")
         register_measurement_point = st.checkbox(
@@ -1904,6 +1905,8 @@ if page == "Revisión de equipo":
             }
             validation = validate_review(data)
             errors = list(validation.errors)
+            if control_fields.get("equipment_type") == "No definido":
+                errors.append("Seleccione el tipo de equipo.")
             if (
                 repair_fields.get("repair_spare_part_required")
                 and not repair_fields.get("repair_spare_part_detail")
@@ -1988,7 +1991,6 @@ if page == "Revisión de equipo":
                                 if last_maintenance_date
                                 else None
                             ),
-                            "failures": failures.strip() or None,
                             "notes": notes.strip() or None,
                             "reviewed_by": reviewed_by.strip() or None,
                         }
@@ -2001,9 +2003,9 @@ if page == "Revisión de equipo":
                                 measurement_location_notes.strip() or None
                             )
 
+                        payload.update(control_fields)
                         payload.update(equipment_fields)
                         payload.update(maintenance_fields)
-                        payload.update(data_fields)
                         payload.update(repair_fields)
 
                         saved = review_repo.insert_review(payload)
