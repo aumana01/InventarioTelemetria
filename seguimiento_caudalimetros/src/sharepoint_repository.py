@@ -2,39 +2,61 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlparse, urlunparse
 
 import requests
 
 from .config import Settings
-from .core import choose_html_attachment
+from .core import choose_html_attachment, parse_sharepoint_attachment_url
 
 
-def fetch_sharepoint_html_direct(url: str) -> tuple[str, bytes]:
-    """Intenta recuperar un HTML directamente desde un vínculo *.sharepoint.com.
+_LOGIN_MARKERS = (
+    b"login.microsoftonline.com",
+    b"sign in to your account",
+    b'name="loginfmt"',
+    b"microsoftonline",
+)
 
-    Esto solo funciona cuando SharePoint permite al servidor de Streamlit acceder al
-    adjunto sin una sesión interactiva. Si el sitio redirige al login de Microsoft,
-    se informa como acceso autenticado requerido para que el llamador pruebe la API.
-    """
+_SHAREPOINT_SHELL_MARKERS = (
+    b"/_layouts/15/",
+    b"wopiframe",
+    b"spclienttemplates",
+    b"sp-pages",
+    b"sharepoint page",
+    b"microsoft 365",
+    b"odspnext",
+    b"suitebar",
+)
+
+
+def _canonical_attachment_url(url: str) -> str:
+    parsed = urlparse(str(url or "").strip())
+    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
+
+
+def _candidate_download_urls(url: str) -> list[str]:
     value = str(url or "").strip()
-    parsed = urlparse(value)
-    if parsed.scheme.lower() != "https" or not parsed.netloc.lower().endswith(
-        ".sharepoint.com"
-    ):
-        raise ValueError("El vínculo debe ser HTTPS y pertenecer a *.sharepoint.com.")
-
-    response = requests.get(
+    canonical = _canonical_attachment_url(value)
+    candidates = [
+        canonical,
+        f"{canonical}?download=1",
         value,
-        headers={
-            "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
-            "User-Agent": "AyA-Seguimiento-Caudalimetros/1.0",
-        },
-        timeout=40,
-        allow_redirects=True,
-    )
+    ]
+    result: list[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in result:
+            result.append(candidate)
+    return result
 
+
+def _validate_downloaded_html(
+    response,
+    expected_filename: str,
+) -> bytes:
     final_host = urlparse(response.url).netloc.lower()
+    final_path = unquote(urlparse(response.url).path).lower()
+    expected_lower = str(expected_filename or "").lower()
+
     if "login.microsoftonline.com" in final_host or "login.microsoft.com" in final_host:
         raise PermissionError(
             "SharePoint redirigió al inicio de sesión de Microsoft; se requiere acceso autenticado."
@@ -48,25 +70,78 @@ def fetch_sharepoint_html_direct(url: str) -> tuple[str, bytes]:
     response.raise_for_status()
 
     content = response.content
-    sample = content[:200_000].lower()
-    login_markers = (
-        b"login.microsoftonline.com",
-        b"sign in to your account",
-        b"name=\"loginfmt\"",
-        b"microsoftonline",
-    )
-    if any(marker in sample for marker in login_markers):
+    sample = content[:300_000].lower()
+    if any(marker in sample for marker in _LOGIN_MARKERS):
         raise PermissionError(
-            "El vínculo devolvió una página de autenticación de Microsoft, no el HTML del gráfico."
+            "SharePoint devolvió una página de autenticación, no el HTML del gráfico."
         )
 
     if b"<html" not in sample and b"<!doctype html" not in sample:
         raise ValueError(
-            "El vínculo respondió, pero el contenido recuperado no parece ser un archivo HTML."
+            "La respuesta de SharePoint no contiene un documento HTML."
         )
 
+    disposition = str(getattr(response, "headers", {}).get("Content-Disposition", "")).lower()
+    disposition_matches = bool(
+        expected_lower and expected_lower in unquote(disposition).lower()
+    )
+    path_matches = bool(expected_lower and final_path.endswith("/" + expected_lower))
+
+    # ?web=1 puede devolver un visor/página de SharePoint que también es HTML.
+    # Se rechaza expresamente ese shell para no copiarlo a Supabase como si fuera el gráfico.
+    shell_detected = any(marker in sample for marker in _SHAREPOINT_SHELL_MARKERS)
+    if shell_detected and not disposition_matches:
+        raise ValueError(
+            "SharePoint devolvió su visor web/página intermedia y no el archivo HTML real."
+        )
+
+    # Para vínculos de adjuntos, una coincidencia del nombre en ruta o Content-Disposition
+    # confirma que estamos leyendo el archivo real. Si no coincide, solo se acepta cuando
+    # tampoco hay señales del shell de SharePoint.
+    if not path_matches and not disposition_matches and "/attachments/" not in final_path:
+        raise ValueError(
+            "La respuesta HTML no corresponde al adjunto solicitado."
+        )
+
+    return content
+
+
+def fetch_sharepoint_html_direct(url: str) -> tuple[str, bytes]:
+    """Recupera el HTML real de un adjunto SharePoint sin autenticación interactiva.
+
+    Primero elimina ?web=1 para evitar el visor web y después prueba una variante
+    de descarga. Si SharePoint exige login, el llamador puede intentar REST/API.
+    """
+    value = str(url or "").strip()
+    parsed = urlparse(value)
+    if parsed.scheme.lower() != "https" or not parsed.netloc.lower().endswith(
+        ".sharepoint.com"
+    ):
+        raise ValueError("El vínculo debe ser HTTPS y pertenecer a *.sharepoint.com.")
+
     filename = Path(unquote(parsed.path)).name or "grafico_sharepoint.html"
-    return filename, content
+    errors: list[str] = []
+
+    for candidate in _candidate_download_urls(value):
+        try:
+            response = requests.get(
+                candidate,
+                headers={
+                    "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+                    "User-Agent": "AyA-Seguimiento-Caudalimetros/1.0",
+                },
+                timeout=40,
+                allow_redirects=True,
+            )
+            content = _validate_downloaded_html(response, filename)
+            return filename, content
+        except Exception as exc:
+            errors.append(f"{candidate}: {type(exc).__name__}: {exc}")
+
+    raise RuntimeError(
+        "No fue posible obtener el HTML real del adjunto de SharePoint. "
+        + " | ".join(errors)
+    )
 
 
 class SharePointListRepository:
@@ -143,6 +218,18 @@ class SharePointListRepository:
         response.raise_for_status()
         return clean_filename, response.content
 
+    def download_attachment_from_url(self, url: str) -> tuple[str, bytes]:
+        parsed_link = parse_sharepoint_attachment_url(url)
+        if not parsed_link:
+            raise ValueError("No se pudo interpretar el vínculo de SharePoint.")
+        item_id = parsed_link.get("item_id")
+        filename = parsed_link.get("file_name")
+        if item_id is None or not filename:
+            raise ValueError(
+                "El vínculo no contiene /Attachments/{id}/{archivo}."
+            )
+        return self.download_attachment_by_name(int(item_id), str(filename))
+
     def download_html_attachment(self, item_id: int) -> tuple[str, bytes]:
         attachments = self.list_attachments(item_id)
         selected = choose_html_attachment(attachments)
@@ -161,3 +248,32 @@ class SharePointListRepository:
             return True, f"Microsoft List accesible ({len(rows)} registro de prueba)."
         except Exception as exc:
             return False, f"SharePoint: {type(exc).__name__}: {exc}"
+
+
+def retrieve_sharepoint_html(
+    url: str,
+    api_repository: SharePointListRepository | None = None,
+) -> tuple[str, bytes, str]:
+    """Obtiene el HTML real: acceso directo primero y REST autenticado como respaldo."""
+    direct_error: Exception | None = None
+    try:
+        filename, content = fetch_sharepoint_html_direct(url)
+        return filename, content, "direct"
+    except Exception as exc:
+        direct_error = exc
+
+    if api_repository is not None:
+        try:
+            filename, content = api_repository.download_attachment_from_url(url)
+            return filename, content, "api"
+        except Exception as api_exc:
+            raise RuntimeError(
+                "No fue posible extraer el HTML real desde SharePoint. "
+                f"Acceso directo: {direct_error}. API: {api_exc}."
+            ) from api_exc
+
+    raise RuntimeError(
+        "No fue posible extraer el HTML real desde SharePoint. "
+        f"Acceso directo: {direct_error}. "
+        "La API REST de SharePoint no está configurada."
+    )
