@@ -1,0 +1,5 @@
+agent_secrets.toml
+__pycache__/
+*.py[cod]
+*.log
+.venv/

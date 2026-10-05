@@ -332,16 +332,10 @@ def render_graph_for_review(
             except Exception as exc:
                 st.warning(f"No fue posible abrir la copia HTML almacenada: {exc}")
 
-        item_id = review.get("sharepoint_item_id")
-        st.warning("Pendiente de sincronización local desde Microsoft Edge.")
-        st.caption(
-            "Streamlit Cloud no intenta autenticarse contra SharePoint. "
-            "El HTML se extrae desde una PC autorizada y luego se copia a Supabase."
+        st.info(
+            "Pendiente de importación automática desde SharePoint. "
+            "El gráfico aparecerá aquí cuando el agente de sincronización lo procese."
         )
-        command = "python sincronizar_html_sharepoint.py"
-        if item_id:
-            command += f" --item-id {int(item_id)}"
-        st.code(command, language="text")
         return
 
     if source == "sharepoint":
@@ -662,16 +656,9 @@ if page == "Revisión de equipo":
                         )
 
             st.info(
-                "El vínculo se guardará en Supabase como referencia. "
-                "El HTML se copiará después mediante sincronizar_html_sharepoint.py "
-                "desde una PC donde pueda iniciar sesión normalmente en Microsoft 365."
+                "El vínculo se guardará y el agente de sincronización importará "
+                "automáticamente el HTML desde SharePoint hacia Supabase."
             )
-            if parsed_link and parsed_link.get("item_id"):
-                st.code(
-                    f"python sincronizar_html_sharepoint.py --item-id "
-                    f"{int(parsed_link['item_id'])}",
-                    language="text",
-                )
 
         notes = st.text_area("Observaciones adicionales", height=90)
 
@@ -801,14 +788,10 @@ if page == "Revisión de equipo":
                             f"Revisión guardada correctamente. ID: {saved.get('id', 'registrado')}"
                         )
                         if graph_source == "sharepoint_link":
-                            command = "python sincronizar_html_sharepoint.py"
-                            if sharepoint_item_id:
-                                command += f" --item-id {int(sharepoint_item_id)}"
                             st.info(
-                                "Vínculo SharePoint guardado. El gráfico queda pendiente "
-                                "de sincronización local desde Microsoft Edge."
+                                "Vínculo SharePoint guardado. El agente lo importará "
+                                "automáticamente a Supabase."
                             )
-                            st.code(command, language="text")
                     except Exception as exc:
                         st.error(f"No fue posible guardar la revisión: {exc}")
 
@@ -898,32 +881,24 @@ elif page == "Ficha e historial":
         st.markdown("#### Gráfico comparativo de mediciones")
 
         if review.get("graph_source") == "sharepoint_link" and review.get("graph_original_url"):
-            item_id = review.get("sharepoint_item_id")
             cached_path = review.get("graph_storage_path")
-            command = "python sincronizar_html_sharepoint.py"
-            if item_id:
-                command += f" --item-id {int(item_id)}"
 
             if cached_path:
-                st.success("Estado SharePoint: HTML sincronizado en Supabase.")
+                st.success("Estado del gráfico: sincronizado.")
                 if st.button(
-                    "Marcar para resincronización local",
+                    "Solicitar nueva sincronización",
                     key=f"resync-sharepoint-{review.get('id')}",
                     use_container_width=True,
                 ):
                     try:
                         review_repo.mark_review_graph_pending(str(review.get("id")))
-                        st.success("Marcado como pendiente de sincronización local.")
+                        st.success("Nueva sincronización solicitada.")
                         st.rerun()
                     except Exception as exc:
-                        st.error(f"No fue posible marcar la revisión: {exc}")
+                        st.error(f"No fue posible solicitar la sincronización: {exc}")
             else:
-                st.warning("Estado SharePoint: pendiente de sincronización local.")
+                st.info("Estado del gráfico: pendiente de importación automática.")
 
-            st.caption(
-                "Ejecute este comando en la PC donde tiene acceso normal a SharePoint:"
-            )
-            st.code(command, language="text")
 
         render_graph_for_review(review, review_repo)
 
@@ -986,10 +961,10 @@ else:
 
     with sp_col:
         st.markdown("#### SharePoint · HTML")
-        status_badge("Sincronización local por Microsoft Edge", "info")
+        status_badge("Agente externo + Supabase", "info")
         st.caption(
-            "Los vínculos se guardan en Supabase y los HTML se importan "
-            "con sincronizar_html_sharepoint.py desde una PC autorizada."
+            "La aplicación guarda vínculos y muestra los HTML cuando el agente "
+            "de sincronización los incorpora a Supabase."
         )
 
     st.markdown("#### Estado de configuración")
@@ -1005,7 +980,7 @@ else:
                 },
                 {
                     "Componente": "SharePoint HTML",
-                    "Configurado": "Sincronización local por Edge",
+                    "Configurado": "Agente externo conectado a Supabase",
                 },
                 {"Componente": "Modo demo", "Configurado": settings.demo_mode},
                 {

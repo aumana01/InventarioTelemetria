@@ -4,10 +4,12 @@ on:
   push:
     paths:
       - "seguimiento_caudalimetros/**"
+      - "agente_sharepoint/**"
       - ".github/workflows/seguimiento_caudalimetros.yml"
   pull_request:
     paths:
       - "seguimiento_caudalimetros/**"
+      - "agente_sharepoint/**"
       - ".github/workflows/seguimiento_caudalimetros.yml"
 
 jobs:
@@ -35,7 +37,7 @@ jobs:
         run: python -m pip install -r requirements.txt
 
       - name: Compile Python
-        run: python -m compileall app.py sincronizar_caudalimetros.py sincronizar_html_sharepoint.py src tests
+        run: python -m compileall app.py sincronizar_caudalimetros.py src tests ../agente_sharepoint
 
       - name: Run unit tests
         run: PYTHONPATH=. pytest -q
