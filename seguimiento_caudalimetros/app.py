@@ -1992,13 +1992,22 @@ elif page == "Ficha e historial":
 
         render_graph_for_review(review, review_repo)
 
+    st.markdown("---")
+    render_review_control_sections(review)
+
     st.markdown("#### Historial del equipo")
     history = pd.DataFrame(reviews)
     wanted = [
         "reviewed_at",
         "measurement_quality",
+        "equipment_type",
         "rectification_status",
-        "is_ultrasonic",
+        "maintenance_gel_date",
+        "maintenance_transducers_alignment_date",
+        "maintenance_internal_download_date",
+        "maintenance_simultaneous_installation_date",
+        "maintenance_scada_working",
+        "maintenance_scada_check_date",
         "last_maintenance_date",
         "graph_source",
         "graph_original_url",
