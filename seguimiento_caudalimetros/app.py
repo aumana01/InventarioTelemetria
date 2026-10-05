@@ -22,7 +22,7 @@ from src.core import (
     validate_review,
 )
 from src.graph_renderer import render_html_graph
-from src.sharepoint_repository import SharePointListRepository
+from src.sharepoint_repository import SharePointListRepository, fetch_sharepoint_html_direct
 from src.sql_repository import SqlMeterRepository
 from src.supabase_repository import SupabaseMeterRepository, SupabaseReviewRepository
 from src.ui import load_css, readonly_snapshot, review_summary, status_badge
@@ -353,7 +353,14 @@ def render_graph_for_review(
         sp_repo = get_sp_repo()
         if item_id and sp_repo is not None:
             try:
-                filename, content = sp_repo.download_html_attachment(int(item_id))
+                saved_filename = str(review.get("sharepoint_file_name") or "").strip()
+                if saved_filename:
+                    filename, content = sp_repo.download_attachment_by_name(
+                        int(item_id),
+                        saved_filename,
+                    )
+                else:
+                    filename, content = sp_repo.download_html_attachment(int(item_id))
                 st.caption(
                     f"Vista recuperada por API desde Microsoft List ID {item_id} · {filename}"
                 )
@@ -708,14 +715,18 @@ if page == "Revisión de equipo":
                             "el ID del elemento."
                         )
 
+            st.caption(
+                "Al guardar, el aplicativo intentará recuperar automáticamente el HTML del vínculo "
+                "y copiarlo a Supabase. Si SharePoint exige autenticación y la API no está configurada, "
+                "puede usar la carga manual como respaldo."
+            )
             sharepoint_cached_html = st.file_uploader(
-                "Copia HTML para visualizar dentro del aplicativo (opcional)",
+                "Copia HTML de respaldo (opcional)",
                 type=["html", "htm"],
                 key="sharepoint_cached_html",
                 help=(
-                    "El vínculo original siempre se conserva. Si adjunta aquí el mismo HTML, "
-                    "Supabase guarda una copia de visualización y la ficha puede abrirlo directamente "
-                    "sin descargarlo al escritorio."
+                    "Solo es necesaria si SharePoint bloquea la recuperación automática. "
+                    "El vínculo original siempre se conserva."
                 ),
             )
             if sharepoint_cached_html:
@@ -847,15 +858,78 @@ if page == "Revisión de equipo":
                                 content=uploaded_html.getvalue(),
                             )
 
-                        if (
-                            graph_source == "sharepoint_link"
-                            and sharepoint_cached_html is not None
-                        ):
-                            graph_storage_path = review_repo.upload_html(
-                                equipment_key=equipment_key,
-                                filename=sharepoint_cached_html.name,
-                                content=sharepoint_cached_html.getvalue(),
-                            )
+                        link_copy_status = None
+                        link_copy_warning = None
+
+                        if graph_source == "sharepoint_link":
+                            html_filename = sharepoint_file_name or "grafico_sharepoint.html"
+                            html_content = None
+
+                            if sharepoint_cached_html is not None:
+                                html_filename = sharepoint_cached_html.name
+                                html_content = sharepoint_cached_html.getvalue()
+                                link_copy_status = (
+                                    "Se utilizó la copia HTML de respaldo suministrada."
+                                )
+                            else:
+                                direct_error = None
+                                try:
+                                    html_filename, html_content = fetch_sharepoint_html_direct(
+                                        sharepoint_url
+                                    )
+                                    link_copy_status = (
+                                        "HTML recuperado automáticamente desde el vínculo "
+                                        "de SharePoint y copiado a Supabase."
+                                    )
+                                except Exception as exc:
+                                    direct_error = exc
+
+                                if (
+                                    html_content is None
+                                    and settings.sharepoint_configured
+                                    and sharepoint_item_id is not None
+                                    and sharepoint_file_name
+                                ):
+                                    try:
+                                        sp_repo = get_sp_repo()
+                                        if sp_repo is not None:
+                                            html_filename, html_content = (
+                                                sp_repo.download_attachment_by_name(
+                                                    int(sharepoint_item_id),
+                                                    str(sharepoint_file_name),
+                                                )
+                                            )
+                                            link_copy_status = (
+                                                "HTML recuperado automáticamente mediante "
+                                                "SharePoint REST y copiado a Supabase."
+                                            )
+                                    except Exception as api_exc:
+                                        link_copy_warning = (
+                                            "No fue posible copiar automáticamente el HTML. "
+                                            f"Acceso directo: {direct_error}; API: {api_exc}"
+                                        )
+
+                                if html_content is None and link_copy_warning is None:
+                                    link_copy_warning = (
+                                        "No fue posible copiar automáticamente el HTML desde "
+                                        f"SharePoint: {direct_error}"
+                                    )
+
+                            if html_content is not None:
+                                html_validation = validate_html_file(
+                                    html_filename,
+                                    html_content,
+                                )
+                                if not html_validation.ok:
+                                    raise ValueError(
+                                        "El contenido recuperado desde SharePoint no es un HTML "
+                                        "válido: " + "; ".join(html_validation.errors)
+                                    )
+                                graph_storage_path = review_repo.upload_html(
+                                    equipment_key=equipment_key,
+                                    filename=html_filename,
+                                    content=html_content,
+                                )
 
                         if graph_source == "sharepoint" and sharepoint_item_id is not None:
                             sp_repo = get_sp_repo()
@@ -912,6 +986,14 @@ if page == "Revisión de equipo":
                         st.success(
                             f"Revisión guardada correctamente. ID: {saved.get('id', 'registrado')}"
                         )
+                        if graph_source == "sharepoint_link":
+                            if graph_storage_path and link_copy_status:
+                                st.info(link_copy_status)
+                            elif link_copy_warning:
+                                st.warning(
+                                    link_copy_warning
+                                    + " El vínculo original sí quedó guardado."
+                                )
                     except Exception as exc:
                         st.error(f"No fue posible guardar la revisión: {exc}")
 
