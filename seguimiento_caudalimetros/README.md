@@ -265,6 +265,25 @@ GitHub Actions:
 - inicia Streamlit en modo demo;
 - consulta `/_stcore/health`.
 
+## 10. Dashboard de seguimiento
+
+En **Vista → Dashboard** se consulta el inventario completo, sin seleccionar un equipo individual.
+
+- **Estado actual**: usa la última revisión global de cada equipo y agrega los equipos sin revisión. Primero se determina la última revisión y después se filtran las fechas, evitando presentar pendientes antiguos ya corregidos como si fueran actuales.
+- **Historial**: consulta todas las revisiones, con paginación de Supabase para superar el límite habitual de 500 registros. Los equipos sin revisión no tienen registros históricos.
+- **Resumen por equipo**: una fila por equipo/revisión, con cantidad y descripción de pendientes.
+- **Detalle por aspecto**: una fila por control de mantenimiento, reparación o control general; incluye fecha y vencimiento cuando corresponda.
+
+Los filtros incluyen sistema, tipo, semáforo, estado, calidad, rectificación, responsable, estado del inventario, disponibilidad del gráfico, código de equipo y búsqueda por código/nombre/serie/observaciones. En detalle también se puede filtrar por categoría y aspecto, incluyendo Software / Firmware.
+
+Los períodos disponibles son última semana (7 fechas, incluida hoy), mes, 2 meses, trimestre y año móviles, fecha específica y rango personalizado. Los meses se calculan como meses calendario. Se pueden aplicar sobre fecha de revisión o último mantenimiento; en detalle también sobre fecha del aspecto y vencimiento. Los límites son inclusivos y las fechas de revisión se convierten a **America/Costa_Rica**. La opción **Incluir registros sin fecha** mantiene los equipos sin revisión o aspectos sin fecha dentro de un período seleccionado.
+
+Las reglas de mantenimiento y reparación son las mismas que en la ficha. Calidad Excelente/Buena es verde; Regular/Mala/sin dato es roja. La rectificación sin realizar es roja. Un equipo sin revisión aparece rojo. El resumen es rojo cuando cualquier aspecto es rojo; los aspectos no aplicables se muestran grises en detalle. Los vencimientos se evalúan al día actual, incluso al consultar registros históricos. El estado del gráfico es un filtro informativo y no cambia el semáforo.
+
+La tabla conserva los colores de las filas, permite ordenar columnas y descargar los resultados filtrados en CSV compatible con Excel. Los contadores corresponden al resultado filtrado: en detalle cuentan aspectos y en historial pueden incluir varias revisiones de un mismo equipo.
+
+**Actualizar datos** recarga el inventario y las revisiones. Las revisiones tienen una caché de 60 segundos, invalidada al guardar, editar o eliminar una revisión desde la aplicación. El Dashboard es de consulta y **no requiere una nueva migración de Supabase**.
+
 ## Seguridad
 
 - No se escriben cambios en la geodatabase.

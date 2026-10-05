@@ -206,6 +206,26 @@ class SupabaseReviewRepository:
         rows = self.list_reviews(equipment_key=equipment_key, limit=1)
         return rows[0] if rows else None
 
+    def list_dashboard_reviews(self, page_size: int = 500) -> list[dict[str, Any]]:
+        """Read the complete history without the normal per-equipment limit."""
+        if page_size < 1:
+            raise ValueError("page_size debe ser positivo.")
+        rows: list[dict[str, Any]] = []
+        while True:
+            result = (
+                self.client.table(self.table_name)
+                .select("*")
+                .order("reviewed_at", desc=True)
+                .order("id", desc=True)
+                .range(len(rows), len(rows) + page_size - 1)
+                .execute()
+            )
+            page = getattr(result, "data", None) or []
+            rows.extend(page)
+            # Continue until empty: a server may cap pages below page_size.
+            if not page:
+                return rows
+
     def list_sharepoint_link_reviews(
         self,
         pending_only: bool = True,

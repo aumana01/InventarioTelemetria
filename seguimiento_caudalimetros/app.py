@@ -26,6 +26,7 @@ from src.core import (
     validate_review,
 )
 from src.graph_renderer import render_stored_graph
+from src.dashboard_ui import render_dashboard
 from src.sql_repository import SqlMeterRepository
 from src.supabase_repository import SupabaseMeterRepository, SupabaseReviewRepository
 from src.ui import load_css, readonly_snapshot, review_summary, status_badge
@@ -134,6 +135,11 @@ def get_supabase_meter_repo(current_settings: Settings) -> SupabaseMeterReposito
 @st.cache_resource
 def get_supabase_repo(current_settings: Settings) -> SupabaseReviewRepository:
     return SupabaseReviewRepository(current_settings)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def load_dashboard_reviews(current_settings: Settings) -> list[dict[str, Any]]:
+    return get_supabase_repo(current_settings).list_dashboard_reviews()
 
 
 def first_nonempty(row: pd.Series, candidates: list[str]) -> str:
@@ -1366,6 +1372,7 @@ def edit_review_dialog(
             payload.update(repair_fields)
 
             review_repo.update_review(review_id, payload)
+            load_dashboard_reviews.clear()
 
             if storage_path_to_cleanup and storage_path_to_cleanup != new_storage_path:
                 try:
@@ -1409,6 +1416,7 @@ def delete_review_dialog(
                 review_id=review_id,
                 graph_storage_path=review.get("graph_storage_path"),
             )
+            load_dashboard_reviews.clear()
             message = "Revisión eliminada correctamente."
             if result.get("storage_warning"):
                 message += " " + str(result["storage_warning"])
@@ -1570,7 +1578,7 @@ else:
 
 page = st.sidebar.radio(
     "Vista",
-    ["Revisión de equipo", "Ficha e historial", "Diagnóstico"],
+    ["Revisión de equipo", "Ficha e historial", "Dashboard", "Diagnóstico"],
 )
 
 columns = [str(column) for column in meters.columns]
@@ -1611,6 +1619,37 @@ name_column = find_column(
         "UBICACION",
     ],
 )
+
+if page == "Dashboard":
+    if st.sidebar.button("Actualizar datos", key="dashboard-refresh"):
+        load_meters.clear()
+        load_dashboard_reviews.clear()
+        st.rerun()
+    if not settings.supabase_configured and not settings.demo_mode:
+        st.title("Dashboard")
+        st.warning("Configure Supabase para consultar las revisiones y sus estados.")
+        st.stop()
+    try:
+        with st.spinner("Cargando el historial de revisiones..."):
+            dashboard_reviews = [] if settings.demo_mode else load_dashboard_reviews(settings)
+    except Exception as exc:
+        st.error("No fue posible cargar las revisiones del Dashboard.")
+        st.exception(exc)
+        st.stop()
+    dashboard_inventory = [
+        {
+            **row.to_dict(),
+            "ID equipo": str(row.get(key_column)),
+            "Sistema": meter_system(row, system_column) or "Sin sistema",
+            "Equipo": meter_name(row, name_column) or str(row.get(key_column)),
+            "Estado inventario": first_nonempty(row, ["Estado", "ESTADO", "Estado_Equipo", "ESTADO_EQUIPO"]) or "Sin dato",
+        }
+        for _, row in meters.iterrows()
+    ]
+    if settings.demo_mode:
+        st.info("Modo demostración: se muestran los equipos de ejemplo sin revisiones almacenadas.")
+    render_dashboard(dashboard_inventory, dashboard_reviews)
+    st.stop()
 
 st.sidebar.markdown("### Buscar equipo")
 search_text = st.sidebar.text_input(
@@ -1995,6 +2034,7 @@ if page == "Revisión de equipo":
                     payload.update(repair_fields)
 
                     saved = review_repo.insert_review(payload)
+                    load_dashboard_reviews.clear()
                     st.success(
                         "Revisión guardada correctamente. "
                         f"ID: {saved.get('id', 'registrado')}"
