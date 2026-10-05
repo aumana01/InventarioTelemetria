@@ -2049,7 +2049,7 @@ elif page == "Ficha e historial":
     )
     review = reviews[selected_review_index]
 
-    action_edit, action_delete, action_space = st.columns([0.22, 0.22, 0.56])
+    action_edit, action_delete, action_space = st.columns([0.20, 0.20, 0.60])
     with action_edit:
         if st.button(
             "✏️ Editar registro",
@@ -2067,38 +2067,34 @@ elif page == "Ficha e historial":
 
     review_summary(review)
 
-    c1, c2 = st.columns([0.48, 0.52], gap="large")
-    with c1:
-        st.markdown("#### Ubicación")
-        render_meter_map(selected_row)
+    # Misma cabecera visual que la vista de captura.
+    top_map, top_data = st.columns([0.48, 0.52], gap="large")
+    with top_map:
+        st.markdown("#### Ubicación del equipo")
+        render_meter_map(selected_row, height=390)
 
-        measurement_latitude = review.get("measurement_latitude")
-        measurement_longitude = review.get("measurement_longitude")
-        if measurement_latitude is not None and measurement_longitude is not None:
-            st.markdown("**Punto puntual de medición registrado en esta revisión**")
-            render_measurement_point_map(
-                float(measurement_latitude),
-                float(measurement_longitude),
-            )
-            if review.get("measurement_location_notes"):
-                st.caption(str(review.get("measurement_location_notes")))
+    with top_data:
+        st.markdown("#### Atributos de la geodatabase")
+        readonly_snapshot(
+            review.get("geodatabase_snapshot") or snapshot,
+            title="Datos guardados con la revisión",
+        )
 
-        with st.expander("Atributos de la geodatabase guardados con la revisión", expanded=True):
-            readonly_snapshot(review.get("geodatabase_snapshot") or snapshot)
+    st.markdown("---")
+    detail_col, control_col = st.columns(2, gap="large")
 
-        st.markdown("#### Detalle técnico")
+    with detail_col:
+        st.markdown("### Detalle de la revisión")
         detail_rows = [
             ("Rectificación", review.get("rectification_status")),
             ("Equipo usado para rectificar", review.get("rectification_equipment")),
-            ("Equipo ultrasónico", "Sí" if review.get("is_ultrasonic") else "No"),
-            ("Circunferencia [mm]", review.get("circumference_mm")),
-            ("Espesor [mm]", review.get("wall_thickness_mm")),
-            ("Distancia de transductores [mm]", review.get("transducer_distance_mm")),
+            ("Tipo de equipo", review.get("equipment_type")),
+            ("Número de serie", review.get("equipment_serial")),
             ("Calidad", review.get("measurement_quality")),
-            ("Latitud punto de medición", review.get("measurement_latitude")),
-            ("Longitud punto de medición", review.get("measurement_longitude")),
-            ("Referencia punto de medición", review.get("measurement_location_notes")),
-            ("Último mantenimiento / revisión", review.get("last_maintenance_date")),
+            (
+                "Último mantenimiento / revisión",
+                review.get("last_maintenance_date"),
+            ),
             ("Revisado por", review.get("reviewed_by")),
         ]
         st.dataframe(
@@ -2106,18 +2102,42 @@ elif page == "Ficha e historial":
             hide_index=True,
             width="stretch",
         )
+
         if review.get("notes"):
             st.markdown("**Observaciones adicionales**")
             st.write(review.get("notes"))
 
-    with c2:
-        st.markdown("#### Gráfico comparativo de mediciones")
+        measurement_latitude = review.get("measurement_latitude")
+        measurement_longitude = review.get("measurement_longitude")
+        if measurement_latitude is not None and measurement_longitude is not None:
+            st.markdown("### Punto puntual de medición")
+            render_measurement_point_map(
+                float(measurement_latitude),
+                float(measurement_longitude),
+            )
+            if review.get("measurement_location_notes"):
+                st.caption(str(review.get("measurement_location_notes")))
 
-        if review.get("graph_source") == "sharepoint_link" and review.get("graph_original_url"):
-            cached_path = review.get("graph_storage_path")
+        render_review_maintenance_status(review)
 
-            if cached_path:
+    with control_col:
+        render_review_repairs_status(review)
+        render_review_generalities(review)
+
+    st.markdown("---")
+    st.markdown("### Gráfico comparativo de mediciones")
+
+    if (
+        review.get("graph_source") == "sharepoint_link"
+        and review.get("graph_original_url")
+    ):
+        cached_path = review.get("graph_storage_path")
+
+        if cached_path:
+            sync_left, sync_right = st.columns([0.72, 0.28])
+            with sync_left:
                 st.success("Estado del gráfico: sincronizado.")
+            with sync_right:
                 if st.button(
                     "Solicitar nueva sincronización",
                     key=f"resync-sharepoint-{review.get('id')}",
@@ -2129,16 +2149,13 @@ elif page == "Ficha e historial":
                         st.rerun()
                     except Exception as exc:
                         st.error(f"No fue posible solicitar la sincronización: {exc}")
-            else:
-                st.info("Estado del gráfico: pendiente de importación automática.")
+        else:
+            st.info("Estado del gráfico: pendiente de importación automática.")
 
-
-        render_graph_for_review(review, review_repo)
+    render_graph_for_review(review, review_repo)
 
     st.markdown("---")
-    render_review_control_sections(review)
-
-    st.markdown("#### Historial del equipo")
+    st.markdown("### Historial del equipo")
     history = pd.DataFrame(reviews)
     wanted = [
         "reviewed_at",
@@ -2158,6 +2175,7 @@ elif page == "Ficha e historial":
         "maintenance_solar_panel_cleaning_date",
         "maintenance_scada_working",
         "maintenance_scada_check_date",
+        "repair_software_firmware_pending",
         "repair_perspective_pending",
         "repair_vision_cco_pending",
         "repair_vision_scada_vr2_pending",
@@ -2169,7 +2187,7 @@ elif page == "Ficha e historial":
         "measurement_longitude",
         "reviewed_by",
     ]
-    existing = [c for c in wanted if c in history.columns]
+    existing = [column for column in wanted if column in history.columns]
     st.dataframe(history[existing], hide_index=True, width="stretch")
 
 
