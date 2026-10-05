@@ -175,27 +175,40 @@ data_source = "auto"
 
 Usa Supabase si está configurado y, en caso contrario, SQL.
 
-## 6. Microsoft List: vínculo y API opcional
+## 6. Microsoft List: vínculo y login Microsoft 365
 
-El aplicativo funciona sin API de Microsoft List. En **Vínculo MS List / SharePoint** puede guardar el URL original del adjunto HTML. Como SharePoint puede exigir autenticación o responder con descarga forzada, el aplicativo no depende de incrustar directamente ese URL en un iframe.
+En **Vínculo MS List / SharePoint** se conserva el URL original del adjunto HTML. Si SharePoint responde con HTTP 401/403, el aplicativo puede usar una **sesión delegada del usuario**: el usuario inicia sesión directamente en Microsoft y la aplicación descarga el adjunto con los mismos permisos que tenga esa persona.
 
-Para garantizar visualización dentro de la ficha, puede adjuntar el mismo archivo HTML como **copia de visualización**. El archivo se conserva en el bucket privado de Supabase y el vínculo original sigue almacenado como referencia oficial.
+El aplicativo no solicita ni almacena la contraseña Microsoft. Usa MSAL Device Code Flow y guarda el token únicamente en la sesión de Streamlit. Al cerrar la sesión del aplicativo el token deja de utilizarse.
 
-Antes de utilizar el vínculo o las coordenadas de medición puntual en una instalación existente, ejecute en Supabase SQL Editor:
+Para habilitar ese login se requiere una **App Registration** de Microsoft Entra:
+
+1. Crear/usar una aplicación en el tenant institucional.
+2. Copiar su **Application (client) ID**.
+3. En **Authentication → Advanced settings**, habilitar **Allow public client flows**.
+4. Agregar el permiso delegado de SharePoint **AllSites.Read** para leer adjuntos mediante SharePoint REST.
+5. Aplicar el consentimiento que exija la política del tenant.
+
+En Streamlit Secrets:
+
+```toml
+[sharepoint]
+site_url = "https://intranetaya.sharepoint.com/sites/MejoramientodeSistemas769"
+list_title = "Seguimiento de Detección de Fugas GAM"
+tenant_id = "TU_TENANT_ID"
+client_id = "TU_APPLICATION_CLIENT_ID"
+client_secret = ""
+```
+
+`client_secret` no es necesario para el login de usuario. Solo se utiliza si se configura adicionalmente un modo app-only.
+
+Cuando el usuario pega un vínculo como `/Attachments/2013/grafico_caudals.html?web=1`, el aplicativo extrae el ID y nombre del adjunto, intenta acceso directo y, si SharePoint exige autenticación, utiliza el token del usuario para llamar el endpoint REST `AttachmentFiles('archivo')/$value`. El HTML real se copia al bucket privado de Supabase y se renderiza en la ficha.
+
+Antes de utilizar vínculos o coordenadas de medición puntual en una instalación existente, ejecute en Supabase SQL Editor:
 
 `migration_20261005_sharepoint_link_location.sql`
 
-Si más adelante se configura Microsoft Entra / SharePoint REST, el aplicativo puede aprovechar el ID extraído del vínculo para recuperar el adjunto por API.
-
-El aplicativo funciona también sin Microsoft List mediante carga manual del HTML.
-
-Si posteriormente se desea consultar la lista `Seguimiento de Detección de Fugas GAM`, se debe registrar una aplicación en Microsoft Entra ID y configurar:
-
-- `tenant_id`
-- `client_id`
-- `client_secret`
-
-La aplicación consulta los `AttachmentFiles`, identifica un archivo `.html` o `.htm` y lo muestra en la ficha.
+El aplicativo también puede funcionar sin Microsoft List mediante carga manual del HTML.
 
 ## 7. Instalación local
 
