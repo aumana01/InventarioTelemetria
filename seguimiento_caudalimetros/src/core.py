@@ -7,6 +7,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+from urllib.parse import unquote, urlparse
 
 QUALITY_VALUES = ("Excelente", "Buena", "Regular", "Mala")
 RECTIFICATION_VALUES = ("No se ha realizado", "Sí, con medición simultánea")
@@ -169,6 +170,63 @@ def validate_review(data: Mapping[str, Any]) -> ValidationResult:
 
     return ValidationResult(ok=not errors, errors=tuple(errors))
 
+
+
+def parse_sharepoint_attachment_url(url: str) -> dict[str, Any] | None:
+    """Extrae ID de elemento y nombre de archivo desde un adjunto estándar de SharePoint."""
+    value = str(url or "").strip()
+    if not value:
+        return None
+    parsed = urlparse(value)
+    if parsed.scheme.lower() != "https" or not parsed.netloc.lower().endswith(".sharepoint.com"):
+        return None
+    match = re.search(r"/Attachments/(\d+)/([^/?#]+)", parsed.path, flags=re.IGNORECASE)
+    if not match:
+        return {
+            "url": value,
+            "item_id": None,
+            "file_name": None,
+        }
+    return {
+        "url": value,
+        "item_id": int(match.group(1)),
+        "file_name": unquote(match.group(2)),
+    }
+
+
+def parse_measurement_coordinates(
+    latitude: str | float | int | None,
+    longitude: str | float | int | None,
+) -> tuple[float | None, float | None, ValidationResult]:
+    lat_raw = "" if latitude is None else str(latitude).strip().replace(",", ".")
+    lon_raw = "" if longitude is None else str(longitude).strip().replace(",", ".")
+
+    if not lat_raw and not lon_raw:
+        return None, None, ValidationResult(ok=True)
+
+    errors: list[str] = []
+    if not lat_raw or not lon_raw:
+        errors.append("Ingrese tanto la latitud como la longitud del punto de medición.")
+        return None, None, ValidationResult(ok=False, errors=tuple(errors))
+
+    try:
+        lat = float(lat_raw)
+    except ValueError:
+        lat = None
+        errors.append("La latitud del punto de medición no es válida.")
+
+    try:
+        lon = float(lon_raw)
+    except ValueError:
+        lon = None
+        errors.append("La longitud del punto de medición no es válida.")
+
+    if lat is not None and not (-90 <= lat <= 90):
+        errors.append("La latitud debe estar entre -90 y 90.")
+    if lon is not None and not (-180 <= lon <= 180):
+        errors.append("La longitud debe estar entre -180 y 180.")
+
+    return lat, lon, ValidationResult(ok=not errors, errors=tuple(errors))
 
 def safe_filename(filename: str) -> str:
     name = Path(filename or "grafico.html").name
