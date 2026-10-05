@@ -485,6 +485,92 @@ def render_meter_map(
     )
 
 
+def render_inventory_overview_map(
+    inventory: pd.DataFrame,
+    *,
+    key_column: str,
+    system_column: str | None = None,
+    name_column: str | None = None,
+    height: int = 520,
+) -> None:
+    valid_points: list[tuple[float, float]] = []
+
+    fmap = folium.Map(
+        location=[9.94, -84.08],
+        zoom_start=10,
+        tiles=None,
+        control_scale=True,
+        prefer_canvas=True,
+    )
+
+    folium.TileLayer(
+        tiles=ESRI_WORLD_IMAGERY,
+        attr="Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+        name="Esri World Imagery",
+        overlay=False,
+        control=False,
+        max_zoom=20,
+    ).add_to(fmap)
+
+    for _, meter in inventory.iterrows():
+        meter_lat = meter.get("LATITUD")
+        meter_lon = meter.get("LONGITUD")
+        if pd.isna(meter_lat) or pd.isna(meter_lon):
+            continue
+
+        lat = float(meter_lat)
+        lon = float(meter_lon)
+        valid_points.append((lat, lon))
+        label = meter_label(
+            meter,
+            key_column,
+            system_column,
+            name_column,
+        )
+
+        folium.CircleMarker(
+            location=[lat, lon],
+            radius=4,
+            color="#007AFF",
+            weight=1,
+            opacity=0.50,
+            fill=True,
+            fill_color="#007AFF",
+            fill_opacity=0.34,
+            tooltip=folium.Tooltip(
+                html.escape(label),
+                permanent=False,
+                sticky=True,
+                direction="top",
+            ),
+        ).add_to(fmap)
+
+    if valid_points:
+        latitudes = [point[0] for point in valid_points]
+        longitudes = [point[1] for point in valid_points]
+        fmap.fit_bounds(
+            [
+                [min(latitudes), min(longitudes)],
+                [max(latitudes), max(longitudes)],
+            ],
+            padding=(18, 18),
+            max_zoom=14,
+        )
+
+    st_folium(
+        fmap,
+        width=None,
+        height=height,
+        use_container_width=True,
+        returned_objects=[],
+        key="inventory-overview-map",
+    )
+    st.caption(
+        f"Inventario geográfico: {len(valid_points)} equipo(s). "
+        "Seleccione un caudalímetro en el panel izquierdo para acercar y resaltarlo."
+    )
+
+
 def render_measurement_point_map(
     latitude: float,
     longitude: float,
@@ -1877,6 +1963,8 @@ candidate_indices = sorted(
 selected_index = st.sidebar.selectbox(
     "Caudalímetro / nombre",
     options=candidate_indices,
+    index=None if page in {"Revisión de equipo", "Ficha e historial"} else 0,
+    placeholder="Seleccione un caudalímetro",
     format_func=lambda idx: meter_label(
         meters.loc[idx],
         key_column,
@@ -1884,6 +1972,22 @@ selected_index = st.sidebar.selectbox(
         name_column,
     ),
 )
+
+if selected_index is None:
+    st.title("Seguimiento de Caudalímetros")
+    st.caption(
+        "Vista general del inventario. Seleccione un caudalímetro en el panel izquierdo "
+        "para abrir su revisión o historial."
+    )
+    render_inventory_overview_map(
+        meters,
+        key_column=key_column,
+        system_column=system_column,
+        name_column=name_column,
+        height=560,
+    )
+    st.stop()
+
 selected_row = meters.loc[selected_index]
 equipment_key = str(selected_row.get(key_column))
 selected_system_name = meter_system(selected_row, system_column)
