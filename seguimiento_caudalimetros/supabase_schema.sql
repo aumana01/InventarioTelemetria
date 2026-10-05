@@ -35,8 +35,13 @@ create table if not exists public.caudalimetro_revisiones (
 
     graph_source text not null default 'none',
     graph_storage_path text,
+    graph_original_url text,
     sharepoint_item_id bigint,
     sharepoint_file_name text,
+
+    measurement_latitude double precision,
+    measurement_longitude double precision,
+    measurement_location_notes text,
 
     last_maintenance_date date,
     failures text,
@@ -48,7 +53,7 @@ create table if not exists public.caudalimetro_revisiones (
     constraint caudalimetro_measurement_quality_chk
       check (measurement_quality in ('Excelente', 'Buena', 'Regular', 'Mala')),
     constraint caudalimetro_graph_source_chk
-      check (graph_source in ('none', 'manual', 'sharepoint')),
+      check (graph_source in ('none', 'manual', 'sharepoint', 'sharepoint_link')),
     constraint caudalimetro_ultrasonic_values_chk
       check (
         not is_ultrasonic
@@ -59,6 +64,27 @@ create table if not exists public.caudalimetro_revisiones (
         )
       )
 );
+
+
+-- Migración segura para instalaciones existentes.
+alter table public.caudalimetro_revisiones
+    add column if not exists graph_original_url text;
+
+alter table public.caudalimetro_revisiones
+    add column if not exists measurement_latitude double precision;
+
+alter table public.caudalimetro_revisiones
+    add column if not exists measurement_longitude double precision;
+
+alter table public.caudalimetro_revisiones
+    add column if not exists measurement_location_notes text;
+
+alter table public.caudalimetro_revisiones
+    drop constraint if exists caudalimetro_graph_source_chk;
+
+alter table public.caudalimetro_revisiones
+    add constraint caudalimetro_graph_source_chk
+      check (graph_source in ('none', 'manual', 'sharepoint', 'sharepoint_link'));
 
 create index if not exists idx_caudalimetro_revisiones_equipment_date
     on public.caudalimetro_revisiones (equipment_key, reviewed_at desc);
