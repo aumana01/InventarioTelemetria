@@ -813,28 +813,14 @@ def render_control_general_equipment(
 
 def render_equipment_generalities(
     prefix: str,
+    equipment_type: str,
     current: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     current = current or {}
     st.markdown("### GENERALIDADES DEL EQUIPO")
 
-    current_type = str(current.get("equipment_type") or "No definido")
-    if current_type == "No definido" and current.get("is_ultrasonic"):
-        current_type = "Ultrasónico"
-    if current_type not in EQUIPMENT_TYPE_VALUES:
-        current_type = "No definido"
-
-    equipment_type = st.selectbox(
-        "Tipo de equipo",
-        options=list(EQUIPMENT_TYPE_VALUES),
-        index=list(EQUIPMENT_TYPE_VALUES).index(current_type),
-        key=f"{prefix}-equipment-type",
-    )
-
     payload: dict[str, Any] = {
-        "equipment_type": equipment_type,
         "is_ultrasonic": equipment_type == "Ultrasónico",
-        "transducer_serial": None,
         "pipe_material": None,
         "circumference_mm": None,
         "wall_thickness_mm": None,
@@ -851,14 +837,6 @@ def render_equipment_generalities(
     }
 
     if equipment_type == "Ultrasónico":
-        payload["transducer_serial"] = (
-            st.text_input(
-                "No. serie de transductores actual",
-                value=str(current.get("transducer_serial") or ""),
-                key=f"{prefix}-transducer-serial",
-            ).strip()
-            or None
-        )
         u1, u2, u3 = st.columns(3)
         circumference = u1.number_input(
             "Circunferencia [mm]",
@@ -973,18 +951,30 @@ def render_equipment_generalities(
         payload["insertion_depth"] = depth or None
         payload["insertion_diameter"] = diameter or None
 
+    elif equipment_type == "No definido":
+        st.info("Seleccione el tipo de equipo en Control general de la revisión.")
+
     return payload
 
 
 def render_review_control_sections(review: dict[str, Any]) -> None:
     st.markdown("### Estado de mantenimiento")
+    equipment_type = str(review.get("equipment_type") or "No definido")
     maintenance_rows = [
-        ("Cambio de gel", "maintenance_gel_date", 6, True, True),
+        (
+            "Cambio de gel",
+            "maintenance_gel_date",
+            6,
+            bool(review.get("maintenance_gel_applicable", True)),
+            True,
+        ),
         (
             "Alineación y sujeción de transductores",
             "maintenance_transducers_alignment_date",
             6,
-            True,
+            bool(
+                review.get("maintenance_transducers_alignment_applicable", True)
+            ),
             True,
         ),
         (
@@ -999,6 +989,20 @@ def render_review_control_sections(review: dict[str, Any]) -> None:
             "maintenance_simultaneous_installation_date",
             12,
             True,
+            True,
+        ),
+        (
+            "Limpieza del sensor de inserción",
+            "maintenance_insertion_sensor_cleaning_date",
+            12,
+            equipment_type == "Inserción",
+            True,
+        ),
+        (
+            "Limpieza de panel solar y gabinete",
+            "maintenance_solar_panel_cleaning_date",
+            12,
+            bool(review.get("maintenance_solar_panel_applicable", False)),
             True,
         ),
         (
@@ -1021,7 +1025,36 @@ def render_review_control_sections(review: dict[str, Any]) -> None:
                 condition_ok=condition_ok,
             )
 
-    st.markdown("### Aspectos de datos")
+    st.markdown("### Aspectos de reparación o mantenimiento")
+    repair_rows = [
+        ("Señal", "repair_signal_pending"),
+        ("Calibración", "repair_calibration_pending"),
+        ("Energía", "repair_power_pending"),
+        ("Cableado", "repair_wiring_pending"),
+        ("Sustitución temporal", "repair_temporary_replacement"),
+        ("Sustitución permanente", "repair_permanent_replacement"),
+    ]
+    for label, key in repair_rows:
+        pending = bool(review.get(key, False))
+        r1, r2 = st.columns([0.72, 0.28])
+        r1.write(label)
+        with r2:
+            status_badge(
+                "🔴 Pendiente" if pending else "🟢 Sin pendiente",
+                "error" if pending else "success",
+            )
+
+    spare = bool(review.get("repair_spare_part_required", False))
+    r1, r2 = st.columns([0.72, 0.28])
+    detail = str(review.get("repair_spare_part_detail") or "").strip()
+    r1.write("Repuesto particular" + (f": {detail}" if spare and detail else ""))
+    with r2:
+        status_badge(
+            "🔴 Requiere repuesto" if spare else "🟢 Sin pendiente",
+            "error" if spare else "success",
+        )
+
+    st.markdown("#### Disponibilidad y visualización de datos")
     data_rows = [
         ("Perspective", "data_perspective_visible", "data_perspective_check_date"),
         ("Vision Client CCO", "data_vision_cco_visible", "data_vision_cco_check_date"),
@@ -1051,44 +1084,15 @@ def render_review_control_sections(review: dict[str, Any]) -> None:
         width="stretch",
     )
 
-    st.markdown("### Reparaciones o mantenimiento pendiente")
-    repair_rows = [
-        ("Señal", "repair_signal_pending"),
-        ("Calibración", "repair_calibration_pending"),
-        ("Energía", "repair_power_pending"),
-        ("Cableado", "repair_wiring_pending"),
-        ("Sustitución temporal", "repair_temporary_replacement"),
-        ("Sustitución permanente", "repair_permanent_replacement"),
-    ]
-    for label, key in repair_rows:
-        pending = bool(review.get(key, False))
-        r1, r2 = st.columns([0.72, 0.28])
-        r1.write(label)
-        with r2:
-            status_badge(
-                "🔴 Pendiente" if pending else "🟢 Sin pendiente",
-                "error" if pending else "success",
-            )
-    spare = bool(review.get("repair_spare_part_required", False))
-    r1, r2 = st.columns([0.72, 0.28])
-    detail = str(review.get("repair_spare_part_detail") or "").strip()
-    r1.write(
-        "Repuesto particular"
-        + (f": {detail}" if spare and detail else "")
-    )
-    with r2:
-        status_badge(
-            "🔴 Requiere repuesto" if spare else "🟢 Sin pendiente",
-            "error" if spare else "success",
-        )
-
     st.markdown("### Generalidades del equipo")
-    equipment_type = str(review.get("equipment_type") or "No definido")
-    general_rows = [("Tipo de equipo", equipment_type)]
+    general_rows = [
+        ("Tipo de equipo", equipment_type),
+        ("Número de serie del equipo", review.get("equipment_serial")),
+    ]
     if equipment_type == "Ultrasónico" or review.get("is_ultrasonic"):
         general_rows.extend(
             [
-                ("Serie de transductores", review.get("transducer_serial")),
+                ("Número de serie de transductores", review.get("transducer_serial")),
                 ("Circunferencia [mm]", review.get("circumference_mm")),
                 ("Espesor [mm]", review.get("wall_thickness_mm")),
                 (
