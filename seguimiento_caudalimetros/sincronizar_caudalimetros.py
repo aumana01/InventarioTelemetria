@@ -29,7 +29,10 @@ def main() -> int:
         f"Leyendo {settings.sql_schema}.{settings.sql_table} "
         f"desde {settings.sql_server}..."
     )
-    meters = SqlMeterRepository(settings).load_meters()
+    sql_repository = SqlMeterRepository(settings)
+    meters = sql_repository.load_meters()
+    source_name = sql_repository.last_source_name or settings.sql_table
+    print(f"Fuente SQL utilizada: {settings.sql_schema}.{source_name}")
 
     if meters.empty:
         print("La consulta SQL no devolvió registros. No se sincronizó nada.")
