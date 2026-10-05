@@ -153,3 +153,16 @@ class Settings:
                 self.ms_client_secret,
             ]
         )
+
+
+    @property
+    def sharepoint_user_login_configured(self) -> bool:
+        """Login delegado de usuario: no requiere client_secret."""
+        return all(
+            [
+                self.sharepoint_site_url,
+                self.sharepoint_list_title,
+                self.ms_tenant_id,
+                self.ms_client_id,
+            ]
+        )
