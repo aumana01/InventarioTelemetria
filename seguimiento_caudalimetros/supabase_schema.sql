@@ -48,12 +48,61 @@ create table if not exists public.caudalimetro_revisiones (
     notes text,
     reviewed_by text,
 
+    maintenance_gel_date date,
+    maintenance_transducers_alignment_date date,
+    maintenance_internal_download_applicable boolean not null default true,
+    maintenance_internal_download_date date,
+    maintenance_simultaneous_installation_date date,
+    maintenance_scada_working boolean,
+    maintenance_scada_check_date date,
+
+    data_perspective_visible boolean,
+    data_perspective_check_date date,
+    data_vision_cco_visible boolean,
+    data_vision_cco_check_date date,
+    data_vision_scada_vr2_visible boolean,
+    data_vision_scada_vr2_check_date date,
+    data_vision_reports_downloadable boolean,
+    data_vision_reports_check_date date,
+
+    repair_signal_pending boolean not null default false,
+    repair_calibration_pending boolean not null default false,
+    repair_power_pending boolean not null default false,
+    repair_wiring_pending boolean not null default false,
+    repair_spare_part_required boolean not null default false,
+    repair_spare_part_detail text,
+    repair_temporary_replacement boolean not null default false,
+    repair_permanent_replacement boolean not null default false,
+
+    equipment_type text not null default 'No definido',
+    transducer_serial text,
+    pipe_material text,
+    electromagnetic_diameter numeric,
+    calibration_factor numeric,
+    open_channel_height numeric,
+    open_channel_width numeric,
+    open_channel_x_downstream numeric,
+    open_channel_y_downstream numeric,
+    open_channel_surface_type text,
+    insertion_depth numeric,
+    insertion_diameter numeric,
+
     constraint caudalimetro_rectification_status_chk
       check (rectification_status in ('No se ha realizado', 'Sí, con medición simultánea')),
     constraint caudalimetro_measurement_quality_chk
       check (measurement_quality in ('Excelente', 'Buena', 'Regular', 'Mala')),
     constraint caudalimetro_graph_source_chk
       check (graph_source in ('none', 'manual', 'sharepoint', 'sharepoint_link')),
+    constraint caudalimetro_equipment_type_chk
+      check (
+        equipment_type in (
+          'No definido',
+          'Ultrasónico',
+          'Electromagnético',
+          'Canal Abierto',
+          'Inserción'
+        )
+      ),
     constraint caudalimetro_ultrasonic_values_chk
       check (
         not is_ultrasonic
@@ -80,11 +129,63 @@ alter table public.caudalimetro_revisiones
     add column if not exists measurement_location_notes text;
 
 alter table public.caudalimetro_revisiones
+    add column if not exists maintenance_gel_date date,
+    add column if not exists maintenance_transducers_alignment_date date,
+    add column if not exists maintenance_internal_download_applicable boolean not null default true,
+    add column if not exists maintenance_internal_download_date date,
+    add column if not exists maintenance_simultaneous_installation_date date,
+    add column if not exists maintenance_scada_working boolean,
+    add column if not exists maintenance_scada_check_date date,
+    add column if not exists data_perspective_visible boolean,
+    add column if not exists data_perspective_check_date date,
+    add column if not exists data_vision_cco_visible boolean,
+    add column if not exists data_vision_cco_check_date date,
+    add column if not exists data_vision_scada_vr2_visible boolean,
+    add column if not exists data_vision_scada_vr2_check_date date,
+    add column if not exists data_vision_reports_downloadable boolean,
+    add column if not exists data_vision_reports_check_date date,
+    add column if not exists repair_signal_pending boolean not null default false,
+    add column if not exists repair_calibration_pending boolean not null default false,
+    add column if not exists repair_power_pending boolean not null default false,
+    add column if not exists repair_wiring_pending boolean not null default false,
+    add column if not exists repair_spare_part_required boolean not null default false,
+    add column if not exists repair_spare_part_detail text,
+    add column if not exists repair_temporary_replacement boolean not null default false,
+    add column if not exists repair_permanent_replacement boolean not null default false,
+    add column if not exists equipment_type text not null default 'No definido',
+    add column if not exists transducer_serial text,
+    add column if not exists pipe_material text,
+    add column if not exists electromagnetic_diameter numeric,
+    add column if not exists calibration_factor numeric,
+    add column if not exists open_channel_height numeric,
+    add column if not exists open_channel_width numeric,
+    add column if not exists open_channel_x_downstream numeric,
+    add column if not exists open_channel_y_downstream numeric,
+    add column if not exists open_channel_surface_type text,
+    add column if not exists insertion_depth numeric,
+    add column if not exists insertion_diameter numeric;
+
+alter table public.caudalimetro_revisiones
     drop constraint if exists caudalimetro_graph_source_chk;
 
 alter table public.caudalimetro_revisiones
     add constraint caudalimetro_graph_source_chk
       check (graph_source in ('none', 'manual', 'sharepoint', 'sharepoint_link'));
+
+alter table public.caudalimetro_revisiones
+    drop constraint if exists caudalimetro_equipment_type_chk;
+
+alter table public.caudalimetro_revisiones
+    add constraint caudalimetro_equipment_type_chk
+      check (
+        equipment_type in (
+          'No definido',
+          'Ultrasónico',
+          'Electromagnético',
+          'Canal Abierto',
+          'Inserción'
+        )
+      );
 
 create index if not exists idx_caudalimetro_revisiones_equipment_date
     on public.caudalimetro_revisiones (equipment_key, reviewed_at desc);
