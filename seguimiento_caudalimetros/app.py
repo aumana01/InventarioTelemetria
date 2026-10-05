@@ -22,12 +22,6 @@ from src.core import (
     validate_review,
 )
 from src.graph_renderer import render_html_graph
-from src.sharepoint_repository import (
-    DelegatedSharePointRepository,
-    Microsoft365DeviceAuth,
-    SharePointListRepository,
-    retrieve_sharepoint_html,
-)
 from src.sql_repository import SqlMeterRepository
 from src.supabase_repository import SupabaseMeterRepository, SupabaseReviewRepository
 from src.ui import load_css, readonly_snapshot, review_summary, status_badge
@@ -136,15 +130,6 @@ def get_supabase_meter_repo(current_settings: Settings) -> SupabaseMeterReposito
 @st.cache_resource
 def get_supabase_repo(current_settings: Settings) -> SupabaseReviewRepository:
     return SupabaseReviewRepository(current_settings)
-
-
-@st.cache_resource
-def get_sharepoint_repo(current_settings: Settings) -> SharePointListRepository:
-    return SharePointListRepository(current_settings)
-
-
-def cached_sharepoint_items(repo: Any) -> list[dict[str, Any]]:
-    return repo.list_items(limit=5000)
 
 
 def first_nonempty(row: pd.Series, candidates: list[str]) -> str:
@@ -304,113 +289,6 @@ def get_review_repo() -> SupabaseReviewRepository | None:
     return get_supabase_repo(settings)
 
 
-def get_sp_repo() -> Any | None:
-    """Prioriza la sesión delegada del usuario y luego el acceso app-only."""
-    token = st.session_state.get("ms365_access_token")
-    if token:
-        return DelegatedSharePointRepository(settings, str(token))
-    if settings.sharepoint_configured:
-        return get_sharepoint_repo(settings)
-    return None
-
-
-def ms365_username() -> str:
-    return str(st.session_state.get("ms365_username") or "").strip()
-
-
-def clear_ms365_session() -> None:
-    for key in (
-        "ms365_access_token",
-        "ms365_username",
-        "ms365_device_flow",
-    ):
-        st.session_state.pop(key, None)
-
-
-@st.dialog("Acceso Microsoft 365")
-def microsoft365_login_dialog() -> None:
-    if not settings.sharepoint_user_login_configured:
-        st.warning(
-            "Para habilitar el inicio de sesión se requiere un Application (client) ID "
-            "de Microsoft Entra en la sección [sharepoint] de Secrets."
-        )
-        st.code(
-            '[sharepoint]\n'
-            'tenant_id = "..."\n'
-            'client_id = "..."\n'
-            'client_secret = ""',
-            language="toml",
-        )
-        return
-
-    if st.session_state.get("ms365_access_token"):
-        username = ms365_username() or "Usuario autenticado"
-        st.success(f"Sesión Microsoft 365 activa: {username}")
-        if st.button("Cerrar sesión Microsoft 365", use_container_width=True):
-            clear_ms365_session()
-            st.rerun()
-        return
-
-    try:
-        auth = Microsoft365DeviceAuth(settings)
-        flow = st.session_state.get("ms365_device_flow")
-        if not flow:
-            flow = auth.initiate()
-            st.session_state["ms365_device_flow"] = flow
-
-        st.write(
-            "El acceso se realiza directamente en Microsoft. "
-            "El aplicativo no solicita ni almacena su contraseña."
-        )
-
-        verification_url = (
-            flow.get("verification_uri_complete")
-            or flow.get("verification_uri")
-            or "https://microsoft.com/devicelogin"
-        )
-        user_code = str(flow.get("user_code") or "")
-
-        if user_code:
-            st.markdown("**Código de Microsoft:**")
-            st.code(user_code)
-
-        st.link_button(
-            "Abrir inicio de sesión oficial de Microsoft",
-            str(verification_url),
-            use_container_width=True,
-        )
-        st.caption(
-            "Complete el inicio de sesión en Microsoft 365 y luego vuelva a este diálogo."
-        )
-
-        if st.button(
-            "Ya inicié sesión · completar acceso",
-            type="primary",
-            use_container_width=True,
-        ):
-            with st.spinner("Validando sesión con Microsoft..."):
-                result = auth.complete(flow)
-
-            st.session_state["ms365_access_token"] = result["access_token"]
-            claims = result.get("id_token_claims") or {}
-            st.session_state["ms365_username"] = (
-                claims.get("preferred_username")
-                or claims.get("upn")
-                or claims.get("name")
-                or "Usuario Microsoft 365"
-            )
-            st.session_state.pop("ms365_device_flow", None)
-            st.success("Inicio de sesión completado.")
-            st.rerun()
-
-        if st.button("Generar un código nuevo", use_container_width=True):
-            st.session_state.pop("ms365_device_flow", None)
-            st.rerun()
-
-    except Exception as exc:
-        st.error(f"No fue posible iniciar sesión con Microsoft 365: {exc}")
-
-
 def render_graph_for_review(
     review: dict[str, Any],
     review_repo: SupabaseReviewRepository | None,
@@ -445,67 +323,33 @@ def render_graph_for_review(
         if cached_path and review_repo is not None:
             try:
                 content = review_repo.download_html(str(cached_path))
-                st.caption("Vista directa desde la copia de visualización almacenada en Supabase.")
+                st.success("HTML de SharePoint sincronizado en Supabase.")
                 render_html_graph(
                     content,
-                    key=f"sharepoint-link-cache-{review.get('id', cached_path)}",
+                    key=f"sharepoint-local-{review.get('id', cached_path)}",
                 )
                 return
             except Exception as exc:
                 st.warning(f"No fue posible abrir la copia HTML almacenada: {exc}")
 
         item_id = review.get("sharepoint_item_id")
-        sp_repo = get_sp_repo()
-        if item_id and sp_repo is not None:
-            try:
-                saved_filename = str(review.get("sharepoint_file_name") or "").strip()
-                if saved_filename:
-                    filename, content = sp_repo.download_attachment_by_name(
-                        int(item_id),
-                        saved_filename,
-                    )
-                else:
-                    filename, content = sp_repo.download_html_attachment(int(item_id))
-                st.caption(
-                    f"Vista recuperada por API desde Microsoft List ID {item_id} · {filename}"
-                )
-                render_html_graph(
-                    content,
-                    key=f"sharepoint-link-api-{item_id}-{review.get('id', '')}",
-                )
-                return
-            except Exception as exc:
-                st.warning(
-                    "El vínculo quedó guardado, pero la recuperación automática por API "
-                    f"no fue posible: {exc}"
-                )
-
-        st.info(
-            "El vínculo original está conservado. Para verlo directamente dentro de la ficha "
-            "sin API, adjunte también una copia del archivo HTML al registrar la revisión. "
-            "SharePoint puede forzar la descarga o requerir autenticación y por eso un iframe "
-            "directo al vínculo no es confiable."
+        st.warning("Pendiente de sincronización local desde Microsoft Edge.")
+        st.caption(
+            "Streamlit Cloud no intenta autenticarse contra SharePoint. "
+            "El HTML se extrae desde una PC autorizada y luego se copia a Supabase."
         )
+        command = "python sincronizar_html_sharepoint.py"
+        if item_id:
+            command += f" --item-id {int(item_id)}"
+        st.code(command, language="text")
         return
 
     if source == "sharepoint":
-        item_id = review.get("sharepoint_item_id")
-        if not item_id:
-            st.info("La revisión no tiene ID de Microsoft List asociado.")
-            return
-        sp_repo = get_sp_repo()
-        if sp_repo is None:
-            st.warning(
-                "La referencia al Microsoft List está guardada, pero la integración REST "
-                "no está configurada en este despliegue."
-            )
-            return
-        try:
-            filename, content = sp_repo.download_html_attachment(int(item_id))
-            st.caption(f"Microsoft List ID {item_id} · {filename}")
-            render_html_graph(content, key=f"sharepoint-{item_id}-{review.get('id', '')}")
-        except Exception as exc:
-            st.error(f"No fue posible cargar el adjunto HTML de Microsoft List: {exc}")
+        st.info(
+            "Esta revisión proviene de la integración SharePoint anterior. "
+            "Registre el vínculo como 'Vínculo MS List / SharePoint' para usar "
+            "la sincronización local por Microsoft Edge."
+        )
         return
 
     st.info("Esta revisión no tiene gráfico comparativo asociado.")
@@ -773,12 +617,9 @@ if page == "Revisión de equipo":
             "Cargar archivo HTML",
             "Vínculo MS List / SharePoint",
         ]
-        if settings.sharepoint_configured or settings.sharepoint_user_login_configured:
-            graph_options.append("Microsoft List (API)")
         graph_option = st.radio("Origen del gráfico", graph_options, horizontal=False)
 
         uploaded_html = None
-        sharepoint_cached_html = None
         sharepoint_url = ""
         sharepoint_item_id = None
         sharepoint_file_name = None
@@ -820,93 +661,17 @@ if page == "Revisión de equipo":
                             "el ID del elemento."
                         )
 
-            st.caption(
-                "Al guardar, el aplicativo intentará recuperar automáticamente el HTML del vínculo "
-                "y copiarlo a Supabase. Si SharePoint exige autenticación, puede iniciar sesión "
-                "con su cuenta Microsoft 365 para que la descarga se haga con sus permisos."
+            st.info(
+                "El vínculo se guardará en Supabase como referencia. "
+                "El HTML se copiará después mediante sincronizar_html_sharepoint.py "
+                "desde una PC donde pueda iniciar sesión normalmente en Microsoft 365."
             )
-
-            if st.session_state.get("ms365_access_token"):
-                username = ms365_username() or "Usuario Microsoft 365"
-                st.success(f"Microsoft 365 conectado: {username}")
-                lc1, lc2 = st.columns(2)
-                if lc1.button(
-                    "Cambiar usuario Microsoft",
-                    key="ms365-change-user",
-                    use_container_width=True,
-                ):
-                    clear_ms365_session()
-                    microsoft365_login_dialog()
-                if lc2.button(
-                    "Cerrar sesión Microsoft",
-                    key="ms365-signout-link",
-                    use_container_width=True,
-                ):
-                    clear_ms365_session()
-                    st.rerun()
-            elif settings.sharepoint_user_login_configured:
-                if st.button(
-                    "Iniciar sesión con Microsoft 365",
-                    key="ms365-login-link",
-                    use_container_width=True,
-                ):
-                    microsoft365_login_dialog()
-            else:
-                st.info(
-                    "El acceso directo a SharePoint está protegido. Para habilitar el login "
-                    "de usuario hace falta configurar client_id de una aplicación Microsoft Entra."
+            if parsed_link and parsed_link.get("item_id"):
+                st.code(
+                    f"python sincronizar_html_sharepoint.py --item-id "
+                    f"{int(parsed_link['item_id'])}",
+                    language="text",
                 )
-            sharepoint_cached_html = st.file_uploader(
-                "Copia HTML de respaldo (opcional)",
-                type=["html", "htm"],
-                key="sharepoint_cached_html",
-                help=(
-                    "Solo es necesaria si SharePoint bloquea la recuperación automática. "
-                    "El vínculo original siempre se conserva."
-                ),
-            )
-            if sharepoint_cached_html:
-                validation = validate_html_file(
-                    sharepoint_cached_html.name,
-                    sharepoint_cached_html.getvalue(),
-                )
-                if validation.ok:
-                    status_badge("Copia HTML válida para visualización directa", "success")
-                else:
-                    for error in validation.errors:
-                        st.error(error)
-
-        elif graph_option == "Microsoft List (API)":
-            sp_repo = get_sp_repo()
-            if sp_repo is None and settings.sharepoint_user_login_configured:
-                if st.button(
-                    "Iniciar sesión con Microsoft 365",
-                    key="ms365-login-api",
-                    use_container_width=True,
-                ):
-                    microsoft365_login_dialog()
-            elif sp_repo is not None:
-                try:
-                    items = cached_sharepoint_items(sp_repo)
-                    if items:
-                        item_ids = [int(x["Id"]) for x in items]
-                        labels = {
-                            int(x["Id"]): f"{x['Id']} — {x.get('Title') or 'Sin título'}"
-                            for x in items
-                        }
-                        sharepoint_item_id = st.selectbox(
-                            "ID de Seguimiento de Detección de Fugas GAM",
-                            options=item_ids,
-                            format_func=lambda x: labels.get(x, str(x)),
-                        )
-                        st.caption(
-                            "Al guardar se valida que el ID tenga un adjunto .html/.htm. "
-                            "El archivo no se copia a Supabase; se conserva solamente la referencia."
-                        )
-                    else:
-                        st.warning("Microsoft List no devolvió registros.")
-                except Exception as exc:
-                    st.error(f"No fue posible consultar Microsoft List: {exc}")
 
         notes = st.text_area("Observaciones adicionales", height=90)
 
@@ -972,18 +737,6 @@ if page == "Revisión de equipo":
                     graph_source = "sharepoint_link"
                     sharepoint_item_id = parsed_link.get("item_id")
                     sharepoint_file_name = parsed_link.get("file_name")
-                    if sharepoint_cached_html is not None:
-                        html_validation = validate_html_file(
-                            sharepoint_cached_html.name,
-                            sharepoint_cached_html.getvalue(),
-                        )
-                        errors.extend(html_validation.errors)
-
-            elif graph_option == "Microsoft List (API)":
-                if sharepoint_item_id is None:
-                    errors.append("Seleccione un ID de Microsoft List.")
-                else:
-                    graph_source = "sharepoint"
 
             if errors:
                 for error in errors:
@@ -1001,68 +754,6 @@ if page == "Revisión de equipo":
                                 content=uploaded_html.getvalue(),
                             )
 
-                        link_copy_status = None
-                        link_copy_warning = None
-
-                        if graph_source == "sharepoint_link":
-                            html_filename = sharepoint_file_name or "grafico_sharepoint.html"
-                            html_content = None
-
-                            if sharepoint_cached_html is not None:
-                                html_filename = sharepoint_cached_html.name
-                                html_content = sharepoint_cached_html.getvalue()
-                                link_copy_status = (
-                                    "Se utilizó la copia HTML de respaldo suministrada."
-                                )
-                            else:
-                                try:
-                                    html_filename, html_content, retrieval_method = (
-                                        retrieve_sharepoint_html(
-                                            sharepoint_url,
-                                            get_sp_repo(),
-                                        )
-                                    )
-                                    if retrieval_method == "api":
-                                        link_copy_status = (
-                                            "HTML real extraído automáticamente mediante "
-                                            "SharePoint REST y copiado a Supabase."
-                                        )
-                                    else:
-                                        link_copy_status = (
-                                            "HTML real extraído automáticamente desde el adjunto "
-                                            "de SharePoint y copiado a Supabase."
-                                        )
-                                except Exception as exc:
-                                    link_copy_warning = (
-                                        "No fue posible extraer automáticamente el HTML real "
-                                        f"desde SharePoint: {exc}"
-                                    )
-
-                            if html_content is not None:
-                                html_validation = validate_html_file(
-                                    html_filename,
-                                    html_content,
-                                )
-                                if not html_validation.ok:
-                                    raise ValueError(
-                                        "El contenido recuperado desde SharePoint no es un HTML "
-                                        "válido: " + "; ".join(html_validation.errors)
-                                    )
-                                graph_storage_path = review_repo.upload_html(
-                                    equipment_key=equipment_key,
-                                    filename=html_filename,
-                                    content=html_content,
-                                )
-
-                        if graph_source == "sharepoint" and sharepoint_item_id is not None:
-                            sp_repo = get_sp_repo()
-                            if sp_repo is None:
-                                raise RuntimeError(
-                                    "La integración REST con Microsoft List no está configurada."
-                                )
-                            sharepoint_file_name, _ = sp_repo.download_html_attachment(
-                                int(sharepoint_item_id)
-                            )
 
                         payload = {
                             "equipment_key": equipment_key,
@@ -1110,13 +801,14 @@ if page == "Revisión de equipo":
                             f"Revisión guardada correctamente. ID: {saved.get('id', 'registrado')}"
                         )
                         if graph_source == "sharepoint_link":
-                            if graph_storage_path and link_copy_status:
-                                st.info(link_copy_status)
-                            elif link_copy_warning:
-                                st.warning(
-                                    link_copy_warning
-                                    + " El vínculo original sí quedó guardado."
-                                )
+                            command = "python sincronizar_html_sharepoint.py"
+                            if sharepoint_item_id:
+                                command += f" --item-id {int(sharepoint_item_id)}"
+                            st.info(
+                                "Vínculo SharePoint guardado. El gráfico queda pendiente "
+                                "de sincronización local desde Microsoft Edge."
+                            )
+                            st.code(command, language="text")
                     except Exception as exc:
                         st.error(f"No fue posible guardar la revisión: {exc}")
 
@@ -1206,56 +898,32 @@ elif page == "Ficha e historial":
         st.markdown("#### Gráfico comparativo de mediciones")
 
         if review.get("graph_source") == "sharepoint_link" and review.get("graph_original_url"):
-            if st.session_state.get("ms365_access_token"):
-                st.caption(
-                    f"Microsoft 365 conectado: {ms365_username() or 'Usuario autenticado'}"
-                )
-            elif settings.sharepoint_user_login_configured:
+            item_id = review.get("sharepoint_item_id")
+            cached_path = review.get("graph_storage_path")
+            command = "python sincronizar_html_sharepoint.py"
+            if item_id:
+                command += f" --item-id {int(item_id)}"
+
+            if cached_path:
+                st.success("Estado SharePoint: HTML sincronizado en Supabase.")
                 if st.button(
-                    "Iniciar sesión Microsoft 365 para acceder a SharePoint",
-                    key=f"ms365-login-history-{review.get('id')}",
+                    "Marcar para resincronización local",
+                    key=f"resync-sharepoint-{review.get('id')}",
                     use_container_width=True,
                 ):
-                    microsoft365_login_dialog()
+                    try:
+                        review_repo.mark_review_graph_pending(str(review.get("id")))
+                        st.success("Marcado como pendiente de sincronización local.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"No fue posible marcar la revisión: {exc}")
+            else:
+                st.warning("Estado SharePoint: pendiente de sincronización local.")
 
-            if st.button(
-                "Reextraer HTML desde vínculo",
-                key=f"repair-sharepoint-{review.get('id')}",
-                use_container_width=True,
-            ):
-                try:
-                    filename, html_content, retrieval_method = retrieve_sharepoint_html(
-                        str(review.get("graph_original_url")),
-                        get_sp_repo(),
-                    )
-                    html_validation = validate_html_file(filename, html_content)
-                    if not html_validation.ok:
-                        raise ValueError("; ".join(html_validation.errors))
-
-                    new_path = review_repo.upload_html(
-                        equipment_key=equipment_key,
-                        filename=filename,
-                        content=html_content,
-                    )
-                    review_repo.update_review_graph_cache(
-                        review_id=str(review.get("id")),
-                        graph_storage_path=new_path,
-                        sharepoint_file_name=filename,
-                    )
-                    method_label = (
-                        "SharePoint REST"
-                        if retrieval_method == "api"
-                        else "el adjunto directo de SharePoint"
-                    )
-                    st.success(
-                        f"HTML real recuperado desde {method_label} y actualizado en Supabase."
-                    )
-                    st.rerun()
-                except Exception as exc:
-                    st.error(
-                        "No fue posible reextraer el HTML real desde el vínculo. "
-                        f"Detalle: {exc}"
-                    )
+            st.caption(
+                "Ejecute este comando en la PC donde tiene acceso normal a SharePoint:"
+            )
+            st.code(command, language="text")
 
         render_graph_for_review(review, review_repo)
 
@@ -1317,12 +985,12 @@ else:
             status_badge(message, "success" if ok else "error")
 
     with sp_col:
-        st.markdown("#### Microsoft List")
-        if not settings.sharepoint_configured:
-            status_badge("Integración REST no configurada", "info")
-        elif st.button("Probar Microsoft List", use_container_width=True):
-            ok, message = get_sharepoint_repo(settings).ping()
-            status_badge(message, "success" if ok else "error")
+        st.markdown("#### SharePoint · HTML")
+        status_badge("Sincronización local por Microsoft Edge", "info")
+        st.caption(
+            "Los vínculos se guardan en Supabase y los HTML se importan "
+            "con sincronizar_html_sharepoint.py desde una PC autorizada."
+        )
 
     st.markdown("#### Estado de configuración")
     st.dataframe(
@@ -1336,16 +1004,8 @@ else:
                     "Configurado": settings.supabase_meters_table,
                 },
                 {
-                    "Componente": "Microsoft List / SharePoint REST app-only",
-                    "Configurado": settings.sharepoint_configured,
-                },
-                {
-                    "Componente": "Login usuario Microsoft 365",
-                    "Configurado": settings.sharepoint_user_login_configured,
-                },
-                {
-                    "Componente": "Sesión Microsoft 365 activa",
-                    "Configurado": bool(st.session_state.get("ms365_access_token")),
+                    "Componente": "SharePoint HTML",
+                    "Configurado": "Sincronización local por Edge",
                 },
                 {"Componente": "Modo demo", "Configurado": settings.demo_mode},
                 {
