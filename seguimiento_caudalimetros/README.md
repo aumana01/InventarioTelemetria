@@ -71,6 +71,12 @@ Si la instalación ya existe y únicamente desea incorporar el nuevo módulo de 
 
 Esta migración agrega únicamente columnas nuevas y conserva los registros históricos existentes. Los semáforos no se almacenan como colores: se calculan en tiempo real a partir de las fechas y estados registrados.
 
+Si ya ejecutó esa migración y desea incorporar los ajustes posteriores de aplicabilidad, limpieza de sensor/panel solar y número de serie del equipo, ejecute además:
+
+`migration_20261005_maintenance_tracking_v2.sql`
+
+Los controles de Perspective, Vision Client y reportes se presentan dentro de **Aspectos de reparación o mantenimiento**, aunque siguen registrándose como validaciones Sí/No/Sin verificar + fecha y no utilizan semáforo.
+
 La aplicación usa una `service_role_key` únicamente del lado servidor. No debe colocarse en código fuente, HTML o JavaScript.
 
 ## 2. Secrets para Streamlit Cloud
