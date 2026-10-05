@@ -215,6 +215,44 @@ class DelegatedSharePointRepository:
             f"getbytitle('{title}')"
         )
 
+    def list_items(self, limit: int = 5000) -> list[dict[str, Any]]:
+        url = f"{self._list_base()}/items?$select=Id,Title&$top={int(limit)}"
+        response = requests.get(url, headers=self._headers(), timeout=25)
+        if response.status_code in {401, 403}:
+            raise PermissionError(
+                "La sesión Microsoft 365 no tiene acceso a la lista o expiró "
+                f"(HTTP {response.status_code})."
+            )
+        response.raise_for_status()
+        rows = response.json().get("value", [])
+        return sorted(rows, key=lambda x: int(x.get("Id", 0)), reverse=True)
+
+    def list_attachments(self, item_id: int) -> list[dict[str, Any]]:
+        url = (
+            f"{self._list_base()}/items({int(item_id)})/AttachmentFiles"
+            "?$select=FileName,ServerRelativeUrl,TimeLastModified"
+        )
+        response = requests.get(url, headers=self._headers(), timeout=25)
+        if response.status_code in {401, 403}:
+            raise PermissionError(
+                "La sesión Microsoft 365 no tiene acceso a los adjuntos o expiró "
+                f"(HTTP {response.status_code})."
+            )
+        response.raise_for_status()
+        return response.json().get("value", [])
+
+    def download_html_attachment(self, item_id: int) -> tuple[str, bytes]:
+        attachments = self.list_attachments(item_id)
+        selected = choose_html_attachment(attachments)
+        if not selected:
+            raise FileNotFoundError(
+                f"El ID {item_id} no contiene adjuntos .html/.htm en Microsoft List."
+            )
+        return self.download_attachment_by_name(
+            int(item_id),
+            str(selected["FileName"]),
+        )
+
     def download_attachment_by_name(
         self,
         item_id: int,
