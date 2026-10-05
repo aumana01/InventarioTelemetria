@@ -43,6 +43,78 @@ def determine_key_column(columns: Iterable[str], preferred: str | None = None) -
     return cols[0]
 
 
+def determine_key_column_from_frame(data, preferred: str | None = None) -> str:
+    """Elige una clave utilizable considerando nombres y datos realmente poblados."""
+    cols = [str(c) for c in data.columns]
+    if not cols:
+        raise ValueError("La consulta SQL no devolvió columnas.")
+
+    normalized = {re.sub(r"[^a-z0-9]", "", c.lower()): c for c in cols}
+    ordered: list[str] = []
+
+    if preferred:
+        if preferred in cols:
+            ordered.append(preferred)
+        preferred_norm = re.sub(r"[^a-z0-9]", "", preferred.lower())
+        mapped = normalized.get(preferred_norm)
+        if mapped and mapped not in ordered:
+            ordered.append(mapped)
+
+    for candidate in (
+        "codigocaudalimetro",
+        "codigomedidor",
+        "codigo",
+        "assetid",
+        "globalid",
+        "objectid",
+        "fid",
+        "id",
+    ):
+        mapped = normalized.get(candidate)
+        if mapped and mapped not in ordered:
+            ordered.append(mapped)
+
+    def stats(column: str) -> tuple[int, int]:
+        series = data[column]
+        valid = series.notna()
+        if valid.any():
+            text_values = series.astype(str).str.strip().str.lower()
+            valid = valid & ~text_values.isin({"", "nan", "none", "null"})
+        nonempty = int(valid.sum())
+        unique = int(series[valid].astype(str).nunique(dropna=True)) if nonempty else 0
+        return nonempty, unique
+
+    # Preferimos una columna candidata completa y única.
+    for column in ordered:
+        nonempty, unique = stats(column)
+        if nonempty == len(data) and unique == nonempty and nonempty > 0:
+            return column
+
+    # Si ninguna candidata está completa, usamos la candidata con más valores únicos,
+    # siempre que tenga al menos un dato.
+    ranked: list[tuple[int, int, int, str]] = []
+    for position, column in enumerate(ordered):
+        nonempty, unique = stats(column)
+        if nonempty > 0:
+            ranked.append((unique, nonempty, -position, column))
+    if ranked:
+        return max(ranked)[3]
+
+    # Último recurso: cualquier columna totalmente poblada y única.
+    fallback: list[tuple[int, str]] = []
+    for column in cols:
+        nonempty, unique = stats(column)
+        if nonempty == len(data) and unique == nonempty and nonempty > 0:
+            fallback.append((unique, column))
+    if fallback:
+        return fallback[0][1]
+
+    raise ValueError(
+        "No se encontró una columna identificadora con valores utilizables. "
+        "Revise Código_Caudalimetro, GlobalID, OBJECTID u otra clave del inventario."
+    )
+
+
 def normalize_value(value: Any) -> Any:
     if value is None:
         return None
