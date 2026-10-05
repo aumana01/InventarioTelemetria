@@ -647,6 +647,7 @@ def render_repairs_section(
         ("repair_calibration_pending", "Calibración"),
         ("repair_power_pending", "Energía"),
         ("repair_wiring_pending", "Cableado"),
+        ("repair_software_firmware_pending", "Actualización de Software / Firmware"),
         ("repair_perspective_pending", "Visualización en Perspective"),
         ("repair_vision_cco_pending", "Visualización en Vision Client de CCO (PC)"),
         (
@@ -980,6 +981,7 @@ def render_review_control_sections(review: dict[str, Any]) -> None:
         ("Calibración", "repair_calibration_pending"),
         ("Energía", "repair_power_pending"),
         ("Cableado", "repair_wiring_pending"),
+        ("Actualización de Software / Firmware", "repair_software_firmware_pending"),
         ("Visualización en Perspective", "repair_perspective_pending"),
         ("Vision Client CCO", "repair_vision_cco_pending"),
         ("Vision Client SCADA vr2", "repair_vision_scada_vr2_pending"),
