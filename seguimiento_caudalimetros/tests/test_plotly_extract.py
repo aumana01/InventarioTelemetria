@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 
@@ -14,6 +15,7 @@ AGENT_MODULE = (
 spec = importlib.util.spec_from_file_location("plotly_extract_agent", AGENT_MODULE)
 module = importlib.util.module_from_spec(spec)
 assert spec and spec.loader
+sys.modules[spec.name] = module
 spec.loader.exec_module(module)
 
 
