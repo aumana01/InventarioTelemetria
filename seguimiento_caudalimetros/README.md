@@ -41,7 +41,9 @@ La geodatabase continúa siendo la fuente maestra. Supabase mantiene una copia o
 - Controla como pendientes de reparación/mantenimiento la visualización en Perspective, Vision Client CCO, Vision Client SCADA vr2 y la descarga desde el módulo de reportes.
 - Controla reparaciones pendientes con semáforo verde/rojo para señal, calibración, energía, cableado, visualización de datos, repuestos y sustituciones.
 - Registra generalidades por tipo de equipo: ultrasónico, electromagnético, canal abierto e inserción.
-- Permite cargar un HTML comparativo y almacenarlo en un bucket privado de Supabase.
+- Permite cargar un HTML comparativo manual y almacenarlo en un bucket privado de Supabase.
+- Para SharePoint, el agente extrae únicamente las trazas, layout y configuración de Plotly, las comprime como JSON gzip y evita almacenar Plotly.js repetidamente.
+- Plotly.js 3.0.1 se instala una sola vez con la aplicación mediante `plotly==6.0.1`.
 - Permite guardar un vínculo original de Microsoft List / SharePoint y extraer el ID del adjunto cuando el URL contiene `/Attachments/{id}/archivo.html`.
 - Los vínculos de SharePoint quedan pendientes de sincronización local; un script abre Microsoft Edge con la sesión normal del usuario, extrae el HTML real y lo copia a Supabase.
 - Permite registrar un punto WGS84 específico de la medición, independiente de la ubicación del macromedidor.
@@ -82,6 +84,12 @@ Si ya utilizó la versión anterior de esos controles, ejecute además:
 `migration_20261005_data_checks_as_repairs.sql`
 
 Esta migración los convierte a pendientes de corrección con semáforo verde/rojo. Un valor histórico **No** se convierte en **Pendiente** y un valor **Sí** se convierte en **Sin pendiente**. Las columnas antiguas de fecha se conservan únicamente como histórico y dejan de mostrarse en la aplicación.
+
+Para activar el almacenamiento optimizado de gráficos SharePoint, ejecute también:
+
+`migration_20261005_compact_plotly_storage.sql`
+
+El agente versión 1.2.0 detecta automáticamente revisiones SharePoint que todavía estén en formato HTML, vuelve a leer el vínculo original, genera un `.plotly.json.gz`, actualiza la revisión y elimina el archivo HTML anterior del bucket después de confirmar la nueva copia. Los HTML manuales se mantienen compatibles como formato legado.
 
 La aplicación usa una `service_role_key` únicamente del lado servidor. No debe colocarse en código fuente, HTML o JavaScript.
 
