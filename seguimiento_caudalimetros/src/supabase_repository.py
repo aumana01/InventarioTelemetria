@@ -163,6 +163,25 @@ class SupabaseReviewRepository:
         rows = self.list_reviews(equipment_key=equipment_key, limit=1)
         return rows[0] if rows else None
 
+    def list_sharepoint_link_reviews(
+        self,
+        pending_only: bool = True,
+        item_id: int | None = None,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        query = (
+            self.client.table(self.table_name)
+            .select("*")
+            .eq("graph_source", "sharepoint_link")
+            .not_.is_("graph_original_url", "null")
+        )
+        if pending_only:
+            query = query.is_("graph_storage_path", "null")
+        if item_id is not None:
+            query = query.eq("sharepoint_item_id", int(item_id))
+        result = query.order("reviewed_at", desc=False).limit(limit).execute()
+        return getattr(result, "data", None) or []
+
     def update_review_graph_cache(
         self,
         review_id: str,
