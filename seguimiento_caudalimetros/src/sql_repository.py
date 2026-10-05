@@ -51,6 +51,33 @@ def transform_crtm05_to_wgs84(meters: pd.DataFrame) -> pd.DataFrame:
 class SqlMeterRepository:
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.last_source_name: str | None = None
+
+    @staticmethod
+    def _resolve_read_source(conn, schema: str, table: str) -> str:
+        """Prefiere la vista versionada de ESRI cuando existe."""
+        lower = table.lower()
+        candidates = [table] if lower.endswith(("_evw", "_vw")) else [
+            f"{table}_evw",
+            f"{table}_vw",
+        ]
+
+        cursor = conn.cursor()
+        for candidate in candidates:
+            cursor.execute(
+                """
+                SELECT 1
+                FROM INFORMATION_SCHEMA.VIEWS
+                WHERE TABLE_SCHEMA = ?
+                  AND TABLE_NAME = ?
+                """,
+                schema,
+                candidate,
+            )
+            if cursor.fetchone():
+                return candidate
+
+        return table
 
     def connect(self) -> "pyodbc.Connection":
         try:
@@ -77,9 +104,12 @@ class SqlMeterRepository:
         schema = self.settings.sql_schema
         table = self.settings.sql_table
         schema_q = _quote_identifier(schema)
-        table_q = _quote_identifier(table)
 
         with self.connect() as conn:
+            source_name = self._resolve_read_source(conn, schema, table)
+            self.last_source_name = source_name
+            source_q = _quote_identifier(source_name)
+
             sql_fields = """
                 SELECT COLUMN_NAME
                 FROM INFORMATION_SCHEMA.COLUMNS
@@ -88,10 +118,11 @@ class SqlMeterRepository:
                   AND UPPER(COLUMN_NAME) <> 'SHAPE'
                 ORDER BY ORDINAL_POSITION
             """
-            fields = pd.read_sql_query(sql_fields, conn, params=[schema, table])
+            fields = pd.read_sql_query(sql_fields, conn, params=[schema, source_name])
             if fields.empty:
                 raise RuntimeError(
-                    f"No se encontraron columnas para {schema}.{table}. Verifique permisos y nombre."
+                    f"No se encontraron columnas para {schema}.{source_name}. "
+                    "Verifique permisos y nombre."
                 )
 
             field_names = fields["COLUMN_NAME"].astype(str).tolist()
@@ -104,7 +135,7 @@ class SqlMeterRepository:
                     SHAPE.STX AS X_CRTM05,
                     SHAPE.STY AS Y_CRTM05,
                     SHAPE.STSrid AS SRID_ORIGINAL
-                FROM {schema_q}.{table_q}
+                FROM {schema_q}.{source_q}
             """
             meters = pd.read_sql_query(query, conn)
 
