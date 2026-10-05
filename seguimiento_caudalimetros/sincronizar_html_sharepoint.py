@@ -32,11 +32,11 @@ def is_microsoft_login_url(url: str) -> bool:
     )
 
 
-def ensure_sharepoint_session(page, site_url: str) -> None:
+def ensure_sharepoint_session(page, site_url: str, interactive: bool = True) -> None:
     print("Abriendo SharePoint en Microsoft Edge...")
     page.goto(site_url, wait_until="domcontentloaded", timeout=90_000)
 
-    if is_microsoft_login_url(page.url):
+    if is_microsoft_login_url(page.url) and interactive:
         print()
         print("Microsoft 365 solicita autenticación.")
         print("Complete el inicio de sesión y MFA directamente en la ventana de Edge.")
