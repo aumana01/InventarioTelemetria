@@ -175,82 +175,31 @@ data_source = "auto"
 
 Usa Supabase si está configurado y, en caso contrario, SQL.
 
-## 6. Microsoft List / SharePoint sin Microsoft Entra
+## 6. Microsoft List / SharePoint
 
-Cuando se selecciona **Vínculo MS List / SharePoint**, Streamlit guarda:
+La aplicación web guarda el vínculo del adjunto y utiliza Supabase como punto de intercambio con un **agente externo de sincronización**.
 
-- el vínculo original del adjunto;
-- el ID del elemento de Microsoft List, si está presente en el URL;
-- el nombre del archivo HTML.
-
-Streamlit Cloud **no intenta autenticarse contra SharePoint**. El gráfico queda con estado **Pendiente de sincronización local** hasta que se ejecute el sincronizador desde una PC donde el usuario pueda abrir SharePoint normalmente.
-
-### Primera instalación local
-
-Desde la carpeta `seguimiento_caudalimetros`:
-
-```cmd
-python -m pip install -r requirements.txt
-```
-
-El sincronizador usa Microsoft Edge instalado en Windows mediante Playwright. No requiere `client_id`, `client_secret`, App Registration ni permisos administrativos de Microsoft Entra.
-
-### Sincronizar vínculos pendientes
-
-```cmd
-python sincronizar_html_sharepoint.py
-```
-
-El proceso:
-
-1. consulta en Supabase las revisiones con `graph_source = sharepoint_link` que aún no tienen `graph_storage_path`;
-2. abre Microsoft Edge con un perfil local persistente;
-3. si Microsoft solicita autenticación, el usuario inicia sesión y completa MFA directamente en Edge;
-4. usa esa misma sesión del navegador para obtener el adjunto HTML real desde SharePoint;
-5. valida el HTML;
-6. lo sube al bucket privado `caudalimetros-graficos`;
-7. actualiza `graph_storage_path` de la revisión;
-8. la ficha de Streamlit comienza a mostrar el gráfico desde Supabase.
-
-El perfil de navegador se guarda fuera del repositorio en el perfil local del usuario, normalmente bajo:
+El usuario de Streamlit no ejecuta comandos. El flujo es:
 
 ```text
-%LOCALAPPDATA%\AyA\SeguimientoCaudalimetros\edge_profile
+Streamlit
+   ↓
+guarda vínculo SharePoint en Supabase
+   ↓
+Agente SharePoint externo
+   ↓
+lee el HTML con una sesión Microsoft 365 válida
+   ↓
+copia el HTML al bucket privado de Supabase
+   ↓
+Streamlit muestra el gráfico
 ```
 
-No se guarda la contraseña Microsoft en Python ni en Supabase.
+Mientras `graph_storage_path` esté vacío, la ficha muestra **Pendiente de importación automática**. Cuando el agente termina, la ficha muestra **Sincronizado** y renderiza el HTML desde Supabase.
 
-### Sincronizar o reparar un caso específico
+El agente está preparado de forma autocontenida en la carpeta `/agente_sharepoint`, con sus propias dependencias, configuración y scripts de instalación para Windows. Está diseñado para vivir en un repositorio independiente y comunicarse con este aplicativo únicamente por Supabase.
 
-Si el vínculo contiene, por ejemplo, `Attachments/2013/grafico_caudals.html`:
-
-```cmd
-python sincronizar_html_sharepoint.py --item-id 2013
-```
-
-Ese modo procesa el caso aunque ya tenga una referencia previa de HTML y es útil para reparar casos como Pizote.
-
-Para volver a procesar todos los vínculos SharePoint:
-
-```cmd
-python sincronizar_html_sharepoint.py --refresh
-```
-
-En la ficha también existe **Marcar para resincronización local**, que limpia la referencia de caché para que el caso vuelva a entrar en la cola normal.
-
-### Sincronizar inventario y HTML en un solo paso
-
-En Windows puede ejecutar:
-
-```cmd
-sincronizar_todo.bat
-```
-
-Primero sincroniza SQL AyA → Supabase y después SharePoint → Supabase.
-
-Antes de utilizar vínculos o coordenadas de medición puntual en una instalación existente, ejecute en Supabase SQL Editor:
-
-`migration_20261005_sharepoint_link_location.sql`
+No requiere Microsoft Entra App Registration, `client_id`, `client_secret`, Power Automate ni Microsoft Graph.
 
 
 ## 7. Instalación local
