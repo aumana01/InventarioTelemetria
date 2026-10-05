@@ -748,6 +748,21 @@ def delete_review_dialog(
             st.error(f"No fue posible eliminar la revisión: {exc}")
 
 
+@st.dialog("Gráfico comparativo de mediciones", width="large")
+def large_graph_dialog(
+    html_content: bytes | str,
+    graph_key: str,
+    equipment_label: str,
+) -> None:
+    if equipment_label:
+        st.caption(equipment_label)
+    render_html_graph(
+        html_content,
+        key=f"large-{graph_key}",
+        height=780,
+    )
+
+
 def render_graph_for_review(
     review: dict[str, Any],
     review_repo: SupabaseReviewRepository | None,
@@ -764,7 +779,20 @@ def render_graph_for_review(
             return
         try:
             content = review_repo.download_html(str(path))
-            render_html_graph(content, key=f"manual-{review.get('id', path)}")
+            graph_id = str(review.get("id") or path)
+            if st.button(
+                "⛶ Ver gráfico en pantalla grande",
+                key=f"expand-manual-{graph_id}",
+                use_container_width=True,
+            ):
+                large_graph_dialog(
+                    content,
+                    graph_key=f"manual-{graph_id}",
+                    equipment_label=str(
+                        review.get("equipment_label") or "Caudalímetro"
+                    ),
+                )
+            render_html_graph(content, key=f"manual-{graph_id}")
         except Exception as exc:
             st.error(f"No fue posible recuperar el HTML desde Supabase: {exc}")
         return
@@ -783,9 +811,22 @@ def render_graph_for_review(
             try:
                 content = review_repo.download_html(str(cached_path))
                 st.success("HTML de SharePoint sincronizado en Supabase.")
+                graph_id = str(review.get("id") or cached_path)
+                if st.button(
+                    "⛶ Ver gráfico en pantalla grande",
+                    key=f"expand-sharepoint-{graph_id}",
+                    use_container_width=True,
+                ):
+                    large_graph_dialog(
+                        content,
+                        graph_key=f"sharepoint-{graph_id}",
+                        equipment_label=str(
+                            review.get("equipment_label") or "Caudalímetro"
+                        ),
+                    )
                 render_html_graph(
                     content,
-                    key=f"sharepoint-local-{review.get('id', cached_path)}",
+                    key=f"sharepoint-local-{graph_id}",
                 )
                 return
             except Exception as exc:

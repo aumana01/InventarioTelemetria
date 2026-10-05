@@ -15,7 +15,11 @@ _GRAPH_COMPONENT = st.components.v2.component(
 )
 
 
-def render_html_graph(html_bytes: bytes | str, key: str) -> None:
+def render_html_graph(
+    html_bytes: bytes | str,
+    key: str,
+    height: int = 640,
+) -> None:
     """Muestra HTML de terceros dentro de un iframe sandboxed.
 
     El HTML se envía como datos al componente y nunca como código del propio
@@ -26,4 +30,10 @@ def render_html_graph(html_bytes: bytes | str, key: str) -> None:
         html_text = html_bytes.decode("utf-8", errors="replace")
     else:
         html_text = html_bytes
-    _GRAPH_COMPONENT(data={"html": html_text}, key=key)
+    _GRAPH_COMPONENT(
+        data={
+            "html": html_text,
+            "height": max(360, min(int(height), 1000)),
+        },
+        key=key,
+    )
