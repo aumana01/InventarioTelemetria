@@ -442,27 +442,27 @@ def render_review_equipment_map(
             radius=5,
             color="#F59E0B",
             weight=1.5,
-            opacity=0.58,
+            opacity=0.82,
             fill=True,
             fill_color="#F59E0B",
-            fill_opacity=0.28,
+            fill_opacity=0.58,
             tooltip=folium.Tooltip(
-                f"Referencia · {html.escape(reference_label)}",
+                html.escape(reference_label),
                 permanent=True,
                 sticky=False,
                 direction="top",
                 offset=(0, -4),
                 style=(
-                    "background-color: rgba(255,248,235,0.76);"
+                    "background-color: rgba(255,248,235,0.88);"
                     "color: #7c4a03;"
                     "font-size: 10px;"
                     "font-weight: 600;"
                     "padding: 2px 6px;"
-                    "border: 1px solid rgba(245,158,11,0.50);"
+                    "border: 1px solid rgba(245,158,11,0.65);"
                     "border-radius: 5px;"
                     "box-shadow: 0 1px 3px rgba(0,0,0,0.18);"
                     "white-space: nowrap;"
-                    "opacity: 0.82;"
+                    "opacity: 0.92;"
                 ),
             ),
         ).add_to(fmap)
@@ -507,7 +507,7 @@ def render_review_equipment_map(
     )
     st.caption(
         f"{selected_label} · WGS84: {selected_lat:.6f}, {selected_lon:.6f} · "
-        "Azul: equipo activo · Ámbar transparente: caudalímetros de referencia."
+        "Azul: equipo activo · Ámbar: otros caudalímetros visibles en el entorno."
     )
 
 
