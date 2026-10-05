@@ -148,6 +148,48 @@ class SupabaseReviewRepository:
             raise RuntimeError("Supabase no devolvió el registro insertado.")
         return rows[0]
 
+    def update_review(
+        self,
+        review_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        result = (
+            self.client.table(self.table_name)
+            .update(payload)
+            .eq("id", str(review_id))
+            .execute()
+        )
+        rows = getattr(result, "data", None) or []
+        if not rows:
+            raise RuntimeError("Supabase no devolvió el registro actualizado.")
+        return rows[0]
+
+    def delete_review(
+        self,
+        review_id: str,
+        graph_storage_path: str | None = None,
+    ) -> dict[str, Any]:
+        result = (
+            self.client.table(self.table_name)
+            .delete()
+            .eq("id", str(review_id))
+            .execute()
+        )
+        storage_warning = None
+        if graph_storage_path:
+            try:
+                self.delete_html(str(graph_storage_path))
+            except Exception as exc:
+                storage_warning = (
+                    "El registro fue eliminado, pero no se pudo limpiar el HTML "
+                    f"del almacenamiento: {exc}"
+                )
+        rows = getattr(result, "data", None) or []
+        return {
+            "deleted": bool(rows) or result is not None,
+            "storage_warning": storage_warning,
+        }
+
     def list_reviews(
         self,
         equipment_key: str | None = None,
@@ -237,6 +279,11 @@ class SupabaseReviewRepository:
         if hasattr(content, "read"):
             return content.read()
         return bytes(content)
+
+    def delete_html(self, path: str) -> None:
+        if not str(path or "").strip():
+            return
+        self.client.storage.from_(self.bucket).remove([str(path)])
 
     def ping(self) -> tuple[bool, str]:
         try:

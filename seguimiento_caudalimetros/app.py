@@ -289,6 +289,389 @@ def get_review_repo() -> SupabaseReviewRepository | None:
     return get_supabase_repo(settings)
 
 
+def _review_date_value(value: Any) -> date | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def _quality_index(value: Any) -> int:
+    try:
+        return list(QUALITY_VALUES).index(str(value))
+    except ValueError:
+        return 1
+
+
+def _rectification_index(value: Any) -> int:
+    try:
+        return list(RECTIFICATION_VALUES).index(str(value))
+    except ValueError:
+        return 0
+
+
+@st.dialog("Editar revisión")
+def edit_review_dialog(
+    review: dict[str, Any],
+    review_repo: SupabaseReviewRepository,
+) -> None:
+    review_id = str(review.get("id") or "")
+    old_storage_path = str(review.get("graph_storage_path") or "").strip() or None
+    old_graph_source = str(review.get("graph_source") or "none")
+    old_sharepoint_url = str(review.get("graph_original_url") or "").strip()
+
+    st.caption(
+        "Los atributos históricos de la geodatabase se mantienen sin cambios. "
+        "Aquí puede corregir la información registrada en la revisión."
+    )
+
+    rectification_status = st.radio(
+        "Rectificación",
+        options=list(RECTIFICATION_VALUES),
+        index=_rectification_index(review.get("rectification_status")),
+        key=f"edit-rectification-{review_id}",
+    )
+    rectification_equipment = ""
+    if rectification_status == "Sí, con medición simultánea":
+        rectification_equipment = st.text_input(
+            "Equipo utilizado para rectificar",
+            value=str(review.get("rectification_equipment") or ""),
+            key=f"edit-rectification-equipment-{review_id}",
+        )
+
+    is_ultrasonic = st.checkbox(
+        "Es un equipo ultrasónico",
+        value=bool(review.get("is_ultrasonic")),
+        key=f"edit-ultrasonic-{review_id}",
+    )
+
+    circumference_mm = None
+    wall_thickness_mm = None
+    transducer_distance_mm = None
+    if is_ultrasonic:
+        u1, u2, u3 = st.columns(3)
+        circumference_mm = u1.number_input(
+            "Circunferencia [mm]",
+            min_value=0.0,
+            value=float(review.get("circumference_mm") or 0),
+            step=0.1,
+            format="%.2f",
+            key=f"edit-circumference-{review_id}",
+        )
+        wall_thickness_mm = u2.number_input(
+            "Espesor [mm]",
+            min_value=0.0,
+            value=float(review.get("wall_thickness_mm") or 0),
+            step=0.1,
+            format="%.2f",
+            key=f"edit-thickness-{review_id}",
+        )
+        transducer_distance_mm = u3.number_input(
+            "Distancia transductores [mm]",
+            min_value=0.0,
+            value=float(review.get("transducer_distance_mm") or 0),
+            step=0.1,
+            format="%.2f",
+            key=f"edit-transducer-{review_id}",
+        )
+
+    measurement_quality = st.selectbox(
+        "Calidad de medición",
+        options=list(QUALITY_VALUES),
+        index=_quality_index(review.get("measurement_quality")),
+        key=f"edit-quality-{review_id}",
+    )
+
+    last_maintenance_date = st.date_input(
+        "Fecha del último mantenimiento / revisión",
+        value=_review_date_value(review.get("last_maintenance_date")),
+        max_value=date.today(),
+        key=f"edit-maintenance-{review_id}",
+    )
+    reviewed_by = st.text_input(
+        "Revisado por",
+        value=str(review.get("reviewed_by") or ""),
+        key=f"edit-reviewed-by-{review_id}",
+    )
+    failures = st.text_area(
+        "Fallas que ha presentado el equipo",
+        value=str(review.get("failures") or ""),
+        height=100,
+        key=f"edit-failures-{review_id}",
+    )
+    notes = st.text_area(
+        "Observaciones adicionales",
+        value=str(review.get("notes") or ""),
+        height=90,
+        key=f"edit-notes-{review_id}",
+    )
+
+    st.markdown("#### Punto de medición")
+    has_measurement_point = (
+        review.get("measurement_latitude") is not None
+        and review.get("measurement_longitude") is not None
+    )
+    register_measurement_point = st.checkbox(
+        "Registrar punto de medición puntual",
+        value=has_measurement_point,
+        key=f"edit-point-enabled-{review_id}",
+    )
+    measurement_latitude_text = ""
+    measurement_longitude_text = ""
+    measurement_location_notes = ""
+    if register_measurement_point:
+        m1, m2 = st.columns(2)
+        measurement_latitude_text = m1.text_input(
+            "Latitud WGS84",
+            value=(
+                "" if review.get("measurement_latitude") is None
+                else str(review.get("measurement_latitude"))
+            ),
+            key=f"edit-lat-{review_id}",
+        )
+        measurement_longitude_text = m2.text_input(
+            "Longitud WGS84",
+            value=(
+                "" if review.get("measurement_longitude") is None
+                else str(review.get("measurement_longitude"))
+            ),
+            key=f"edit-lon-{review_id}",
+        )
+        measurement_location_notes = st.text_input(
+            "Referencia del punto",
+            value=str(review.get("measurement_location_notes") or ""),
+            key=f"edit-point-notes-{review_id}",
+        )
+
+    st.markdown("#### Gráfico")
+    graph_labels = {
+        "none": "Sin gráfico",
+        "manual": "Archivo HTML",
+        "sharepoint_link": "Vínculo MS List / SharePoint",
+        "sharepoint": "Vínculo MS List / SharePoint",
+    }
+    graph_values = ["none", "manual", "sharepoint_link"]
+    normalized_source = (
+        "sharepoint_link" if old_graph_source == "sharepoint" else old_graph_source
+    )
+    if normalized_source not in graph_values:
+        normalized_source = "none"
+    selected_graph_source = st.selectbox(
+        "Origen del gráfico",
+        options=graph_values,
+        index=graph_values.index(normalized_source),
+        format_func=lambda value: graph_labels[value],
+        key=f"edit-graph-source-{review_id}",
+    )
+
+    sharepoint_url = ""
+    replacement_html = None
+    if selected_graph_source == "sharepoint_link":
+        sharepoint_url = st.text_input(
+            "Hipervínculo SharePoint",
+            value=old_sharepoint_url,
+            key=f"edit-sharepoint-url-{review_id}",
+        )
+        if sharepoint_url.strip():
+            parsed_link = parse_sharepoint_attachment_url(sharepoint_url)
+            if parsed_link and parsed_link.get("item_id"):
+                st.caption(
+                    f"ID detectado: {parsed_link['item_id']} · "
+                    f"{parsed_link.get('file_name') or 'archivo no identificado'}"
+                )
+    elif selected_graph_source == "manual":
+        replacement_html = st.file_uploader(
+            "Reemplazar HTML (opcional)",
+            type=["html", "htm"],
+            key=f"edit-html-{review_id}",
+            help=(
+                "Si ya existe un HTML manual y no selecciona otro archivo, "
+                "se conserva el actual."
+            ),
+        )
+
+    if st.button(
+        "Guardar cambios",
+        type="primary",
+        use_container_width=True,
+        key=f"save-edit-review-{review_id}",
+    ):
+        validation_data = {
+            "rectification_status": rectification_status,
+            "rectification_equipment": rectification_equipment,
+            "is_ultrasonic": is_ultrasonic,
+            "circumference_mm": circumference_mm,
+            "wall_thickness_mm": wall_thickness_mm,
+            "transducer_distance_mm": transducer_distance_mm,
+            "measurement_quality": measurement_quality,
+        }
+        errors = list(validate_review(validation_data).errors)
+
+        measurement_latitude = None
+        measurement_longitude = None
+        if register_measurement_point:
+            (
+                measurement_latitude,
+                measurement_longitude,
+                coordinate_validation,
+            ) = parse_measurement_coordinates(
+                measurement_latitude_text,
+                measurement_longitude_text,
+            )
+            errors.extend(coordinate_validation.errors)
+
+        new_storage_path = old_storage_path
+        graph_original_url = None
+        sharepoint_item_id = None
+        sharepoint_file_name = None
+        storage_path_to_cleanup = None
+
+        if selected_graph_source == "none":
+            if old_storage_path:
+                storage_path_to_cleanup = old_storage_path
+            new_storage_path = None
+
+        elif selected_graph_source == "sharepoint_link":
+            parsed_link = parse_sharepoint_attachment_url(sharepoint_url)
+            if not sharepoint_url.strip():
+                errors.append("Ingrese el vínculo SharePoint del gráfico.")
+            elif parsed_link is None:
+                errors.append(
+                    "El vínculo debe ser HTTPS y pertenecer a un dominio *.sharepoint.com."
+                )
+            else:
+                graph_original_url = sharepoint_url.strip()
+                sharepoint_item_id = parsed_link.get("item_id")
+                sharepoint_file_name = parsed_link.get("file_name")
+                if (
+                    old_graph_source not in {"sharepoint", "sharepoint_link"}
+                    or graph_original_url != old_sharepoint_url
+                ):
+                    if old_storage_path:
+                        storage_path_to_cleanup = old_storage_path
+                    new_storage_path = None
+
+        elif selected_graph_source == "manual":
+            if replacement_html is not None:
+                html_validation = validate_html_file(
+                    replacement_html.name,
+                    replacement_html.getvalue(),
+                )
+                errors.extend(html_validation.errors)
+            elif old_graph_source != "manual" or not old_storage_path:
+                errors.append(
+                    "Seleccione un archivo HTML para cambiar el origen del gráfico a manual."
+                )
+
+        if errors:
+            for error in errors:
+                st.error(error)
+            return
+
+        try:
+            if selected_graph_source == "manual" and replacement_html is not None:
+                uploaded_path = review_repo.upload_html(
+                    equipment_key=str(review.get("equipment_key") or ""),
+                    filename=replacement_html.name,
+                    content=replacement_html.getvalue(),
+                )
+                if old_storage_path and old_storage_path != uploaded_path:
+                    storage_path_to_cleanup = old_storage_path
+                new_storage_path = uploaded_path
+                sharepoint_file_name = replacement_html.name
+
+            payload = {
+                "rectification_status": rectification_status,
+                "rectification_equipment": rectification_equipment.strip() or None,
+                "is_ultrasonic": bool(is_ultrasonic),
+                "circumference_mm": circumference_mm if is_ultrasonic else None,
+                "wall_thickness_mm": wall_thickness_mm if is_ultrasonic else None,
+                "transducer_distance_mm": (
+                    transducer_distance_mm if is_ultrasonic else None
+                ),
+                "measurement_quality": measurement_quality,
+                "last_maintenance_date": (
+                    last_maintenance_date.isoformat()
+                    if last_maintenance_date
+                    else None
+                ),
+                "failures": failures.strip() or None,
+                "notes": notes.strip() or None,
+                "reviewed_by": reviewed_by.strip() or None,
+                "measurement_latitude": (
+                    measurement_latitude if register_measurement_point else None
+                ),
+                "measurement_longitude": (
+                    measurement_longitude if register_measurement_point else None
+                ),
+                "measurement_location_notes": (
+                    measurement_location_notes.strip() or None
+                    if register_measurement_point
+                    else None
+                ),
+                "graph_source": selected_graph_source,
+                "graph_storage_path": new_storage_path,
+                "graph_original_url": graph_original_url,
+                "sharepoint_item_id": sharepoint_item_id,
+                "sharepoint_file_name": sharepoint_file_name,
+            }
+
+            review_repo.update_review(review_id, payload)
+
+            if storage_path_to_cleanup and storage_path_to_cleanup != new_storage_path:
+                try:
+                    review_repo.delete_html(storage_path_to_cleanup)
+                except Exception:
+                    pass
+
+            st.session_state["review_action_message"] = "Revisión actualizada correctamente."
+            st.rerun()
+        except Exception as exc:
+            st.error(f"No fue posible actualizar la revisión: {exc}")
+
+
+@st.dialog("Eliminar revisión")
+def delete_review_dialog(
+    review: dict[str, Any],
+    review_repo: SupabaseReviewRepository,
+) -> None:
+    review_id = str(review.get("id") or "")
+    st.warning(
+        "Esta acción elimina definitivamente este registro del historial. "
+        "No modifica la geodatabase del caudalímetro."
+    )
+    st.write(
+        f"**Registro:** {review.get('reviewed_at') or 'Sin fecha'} · "
+        f"{review.get('measurement_quality') or 'Sin calidad'}"
+    )
+    confirm = st.checkbox(
+        "Confirmo que deseo eliminar esta revisión.",
+        key=f"confirm-delete-review-{review_id}",
+    )
+    if st.button(
+        "Eliminar definitivamente",
+        type="primary",
+        use_container_width=True,
+        disabled=not confirm,
+        key=f"delete-review-{review_id}",
+    ):
+        try:
+            result = review_repo.delete_review(
+                review_id=review_id,
+                graph_storage_path=review.get("graph_storage_path"),
+            )
+            message = "Revisión eliminada correctamente."
+            if result.get("storage_warning"):
+                message += " " + str(result["storage_warning"])
+            st.session_state["review_action_message"] = message
+            st.rerun()
+        except Exception as exc:
+            st.error(f"No fue posible eliminar la revisión: {exc}")
+
+
 def render_graph_for_review(
     review: dict[str, Any],
     review_repo: SupabaseReviewRepository | None,
@@ -815,6 +1198,11 @@ elif page == "Ficha e historial":
         name_column,
     )
     st.subheader(f"Ficha de revisión · {ficha_title}")
+
+    action_message = st.session_state.pop("review_action_message", None)
+    if action_message:
+        st.success(str(action_message))
+
     if not reviews:
         review_summary(None)
         st.stop()
@@ -831,6 +1219,22 @@ elif page == "Ficha e historial":
         format_func=review_label,
     )
     review = reviews[selected_review_index]
+
+    action_edit, action_delete, action_space = st.columns([0.22, 0.22, 0.56])
+    with action_edit:
+        if st.button(
+            "✏️ Editar registro",
+            use_container_width=True,
+            key=f"edit-review-{review.get('id')}",
+        ):
+            edit_review_dialog(review, review_repo)
+    with action_delete:
+        if st.button(
+            "🗑️ Eliminar registro",
+            use_container_width=True,
+            key=f"delete-review-open-{review.get('id')}",
+        ):
+            delete_review_dialog(review, review_repo)
 
     review_summary(review)
 
