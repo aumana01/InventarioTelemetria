@@ -242,6 +242,30 @@ def search_normalized(value: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(value).lower())
 
 
+def meter_has_valid_wgs84(row: pd.Series) -> bool:
+    try:
+        latitude = float(row.get("LATITUD"))
+        longitude = float(row.get("LONGITUD"))
+    except (TypeError, ValueError):
+        return False
+    if pd.isna(latitude) or pd.isna(longitude):
+        return False
+    return -90 <= latitude <= 90 and -180 <= longitude <= 180
+
+
+def meter_is_usable(
+    row: pd.Series,
+    system_column: str | None = None,
+    name_column: str | None = None,
+) -> bool:
+    """Excluye registros sin ubicación válida o sin identificación operativa."""
+    has_identity = bool(
+        meter_system(row, system_column)
+        or meter_name(row, name_column)
+    )
+    return has_identity and meter_has_valid_wgs84(row)
+
+
 def meter_matches_search(
     row: pd.Series,
     query: str,
@@ -1625,6 +1649,32 @@ name_column = find_column(
         "UBICACION",
     ],
 )
+
+raw_meter_count = len(meters)
+usable_mask = meters.apply(
+    lambda row: meter_is_usable(
+        row,
+        system_column=system_column,
+        name_column=name_column,
+    ),
+    axis=1,
+)
+meters = meters[usable_mask].reset_index(drop=True)
+excluded_meter_count = raw_meter_count - len(meters)
+
+if meters.empty:
+    st.warning(
+        "El inventario no contiene caudalímetros utilizables con nombre/sistema "
+        "y coordenadas WGS84 válidas."
+    )
+    st.stop()
+
+if excluded_meter_count:
+    st.sidebar.caption(
+        f"Inventario operativo: {len(meters)} equipo(s) · "
+        f"{excluded_meter_count} registro(s) omitido(s) por identificación "
+        "o coordenadas inválidas."
+    )
 
 if page == "Dashboard":
     if st.sidebar.button("Actualizar datos", key="dashboard-refresh"):
