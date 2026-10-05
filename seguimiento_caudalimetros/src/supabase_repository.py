@@ -203,6 +203,17 @@ class SupabaseReviewRepository:
         rows = getattr(result, "data", None) or []
         return rows[0] if rows else payload
 
+
+    def mark_review_graph_pending(self, review_id: str) -> dict[str, Any]:
+        result = (
+            self.client.table(self.table_name)
+            .update({"graph_storage_path": None})
+            .eq("id", str(review_id))
+            .execute()
+        )
+        rows = getattr(result, "data", None) or []
+        return rows[0] if rows else {"graph_storage_path": None}
+
     def upload_html(self, equipment_key: str, filename: str, content: bytes) -> str:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         path = (
