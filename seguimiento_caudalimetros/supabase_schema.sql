@@ -48,13 +48,18 @@ create table if not exists public.caudalimetro_revisiones (
     notes text,
     reviewed_by text,
 
+    maintenance_gel_applicable boolean not null default true,
     maintenance_gel_date date,
+    maintenance_transducers_alignment_applicable boolean not null default true,
     maintenance_transducers_alignment_date date,
     maintenance_internal_download_applicable boolean not null default true,
     maintenance_internal_download_date date,
     maintenance_simultaneous_installation_date date,
     maintenance_scada_working boolean,
     maintenance_scada_check_date date,
+    maintenance_insertion_sensor_cleaning_date date,
+    maintenance_solar_panel_applicable boolean not null default false,
+    maintenance_solar_panel_cleaning_date date,
 
     data_perspective_visible boolean,
     data_perspective_check_date date,
@@ -75,6 +80,7 @@ create table if not exists public.caudalimetro_revisiones (
     repair_permanent_replacement boolean not null default false,
 
     equipment_type text not null default 'No definido',
+    equipment_serial text,
     transducer_serial text,
     pipe_material text,
     electromagnetic_diameter numeric,
@@ -129,13 +135,18 @@ alter table public.caudalimetro_revisiones
     add column if not exists measurement_location_notes text;
 
 alter table public.caudalimetro_revisiones
+    add column if not exists maintenance_gel_applicable boolean not null default true,
     add column if not exists maintenance_gel_date date,
+    add column if not exists maintenance_transducers_alignment_applicable boolean not null default true,
     add column if not exists maintenance_transducers_alignment_date date,
     add column if not exists maintenance_internal_download_applicable boolean not null default true,
     add column if not exists maintenance_internal_download_date date,
     add column if not exists maintenance_simultaneous_installation_date date,
     add column if not exists maintenance_scada_working boolean,
     add column if not exists maintenance_scada_check_date date,
+    add column if not exists maintenance_insertion_sensor_cleaning_date date,
+    add column if not exists maintenance_solar_panel_applicable boolean not null default false,
+    add column if not exists maintenance_solar_panel_cleaning_date date,
     add column if not exists data_perspective_visible boolean,
     add column if not exists data_perspective_check_date date,
     add column if not exists data_vision_cco_visible boolean,
@@ -153,6 +164,7 @@ alter table public.caudalimetro_revisiones
     add column if not exists repair_temporary_replacement boolean not null default false,
     add column if not exists repair_permanent_replacement boolean not null default false,
     add column if not exists equipment_type text not null default 'No definido',
+    add column if not exists equipment_serial text,
     add column if not exists transducer_serial text,
     add column if not exists pipe_material text,
     add column if not exists electromagnetic_diameter numeric,
