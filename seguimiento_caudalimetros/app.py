@@ -1198,6 +1198,11 @@ elif page == "Ficha e historial":
         name_column,
     )
     st.subheader(f"Ficha de revisión · {ficha_title}")
+
+    action_message = st.session_state.pop("review_action_message", None)
+    if action_message:
+        st.success(str(action_message))
+
     if not reviews:
         review_summary(None)
         st.stop()
@@ -1214,6 +1219,22 @@ elif page == "Ficha e historial":
         format_func=review_label,
     )
     review = reviews[selected_review_index]
+
+    action_edit, action_delete, action_space = st.columns([0.22, 0.22, 0.56])
+    with action_edit:
+        if st.button(
+            "✏️ Editar registro",
+            use_container_width=True,
+            key=f"edit-review-{review.get('id')}",
+        ):
+            edit_review_dialog(review, review_repo)
+    with action_delete:
+        if st.button(
+            "🗑️ Eliminar registro",
+            use_container_width=True,
+            key=f"delete-review-open-{review.get('id')}",
+        ):
+            delete_review_dialog(review, review_repo)
 
     review_summary(review)
 
