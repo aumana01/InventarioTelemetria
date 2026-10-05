@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
@@ -284,6 +285,71 @@ class SupabaseReviewRepository:
         if not str(path or "").strip():
             return
         self.client.storage.from_(self.bucket).remove([str(path)])
+
+    def agent_heartbeats(
+        self,
+        active_within_seconds: int = 180,
+    ) -> list[dict[str, Any]]:
+        try:
+            entries = self.client.storage.from_(self.bucket).list("agent_status")
+        except Exception:
+            return []
+
+        now = datetime.now(timezone.utc)
+        heartbeats: list[dict[str, Any]] = []
+
+        for entry in entries or []:
+            if isinstance(entry, dict):
+                name = str(entry.get("name") or "")
+            else:
+                name = str(getattr(entry, "name", "") or "")
+
+            if not name.endswith(".json"):
+                continue
+
+            path = f"agent_status/{name}"
+            try:
+                raw = self.client.storage.from_(self.bucket).download(path)
+                if hasattr(raw, "read"):
+                    raw = raw.read()
+                if not isinstance(raw, bytes):
+                    raw = bytes(raw)
+                payload = json.loads(raw.decode("utf-8"))
+            except Exception:
+                continue
+
+            last_seen_text = str(payload.get("last_seen_utc") or "").strip()
+            age_seconds = None
+            active = False
+            if last_seen_text:
+                try:
+                    last_seen = datetime.fromisoformat(
+                        last_seen_text.replace("Z", "+00:00")
+                    )
+                    if last_seen.tzinfo is None:
+                        last_seen = last_seen.replace(tzinfo=timezone.utc)
+                    age_seconds = max(
+                        0,
+                        int((now - last_seen.astimezone(timezone.utc)).total_seconds()),
+                    )
+                    active = age_seconds <= int(active_within_seconds)
+                except ValueError:
+                    pass
+
+            payload["storage_path"] = path
+            payload["age_seconds"] = age_seconds
+            payload["active"] = active
+            heartbeats.append(payload)
+
+        heartbeats.sort(
+            key=lambda item: (
+                item.get("age_seconds") is None,
+                item.get("age_seconds")
+                if item.get("age_seconds") is not None
+                else 10**12,
+            )
+        )
+        return heartbeats
 
     def ping(self) -> tuple[bool, str]:
         try:

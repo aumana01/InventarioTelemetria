@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -20,6 +21,7 @@ STATE_DIR = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "AyA" / "Agent
 PROFILE_DIR = STATE_DIR / "edge_profile"
 LOG_PATH = STATE_DIR / "agent.log"
 SINGLETON_PORT = 39571
+AGENT_VERSION = "1.1.0"
 
 
 @dataclass(frozen=True)
@@ -159,6 +161,27 @@ class Repository:
             )
             .eq("id", str(review_id))
             .execute()
+        )
+
+    def heartbeat(self, status: str = "active", detail: str | None = None) -> None:
+        hostname = socket.gethostname() or "equipo-sin-nombre"
+        payload = {
+            "agent": "agente_sharepoint",
+            "version": AGENT_VERSION,
+            "hostname": hostname,
+            "status": status,
+            "detail": detail,
+            "last_seen_utc": datetime.now(timezone.utc).isoformat(),
+            "poll_seconds": self.config.poll_seconds,
+        }
+        path = f"agent_status/{safe_filename(hostname)}.json"
+        self.client.storage.from_(self.config.bucket).upload(
+            path=path,
+            file=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            file_options={
+                "content-type": "application/json; charset=utf-8",
+                "upsert": "true",
+            },
         )
 
 
@@ -318,13 +341,26 @@ def main() -> int:
     _lock = singleton_socket()
     config = load_config()
     repository = Repository(config)
-    logging.info("Agente iniciado. Intervalo: %s s", config.poll_seconds)
+    logging.info(
+        "Agente iniciado. Versión: %s | Intervalo: %s s",
+        AGENT_VERSION,
+        config.poll_seconds,
+    )
 
     while True:
         try:
+            repository.heartbeat(status="active")
             process_pending(config, repository)
-        except Exception:
+            repository.heartbeat(status="active")
+        except Exception as exc:
             logging.exception("Error general del ciclo de sincronización")
+            try:
+                repository.heartbeat(
+                    status="error",
+                    detail=f"{type(exc).__name__}: {exc}"[:500],
+                )
+            except Exception:
+                pass
         time.sleep(config.poll_seconds)
 
 
