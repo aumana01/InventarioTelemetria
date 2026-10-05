@@ -291,37 +291,23 @@ def render_satellite_point_map(
         fill_opacity=1.0,
         tooltip=folium.Tooltip(
             safe_label,
+            permanent=True,
             sticky=False,
             direction="top",
-        ),
-    ).add_to(fmap)
-
-    folium.Marker(
-        location=[float(latitude), float(longitude)],
-        icon=folium.DivIcon(
-            icon_size=(220, 44),
-            icon_anchor=(110, 52),
-            html=(
-                '<div style="'
-                'display:inline-block;'
-                'transform:translateX(-50%);'
-                'background:rgba(20,28,38,0.90);'
-                'color:#ffffff;'
-                'font-size:13px;'
-                'font-weight:700;'
-                'line-height:1.2;'
-                'padding:6px 10px;'
-                'border:1px solid rgba(255,255,255,0.90);'
-                'border-radius:7px;'
-                'box-shadow:0 2px 7px rgba(0,0,0,0.35);'
-                'white-space:nowrap;'
-                'text-align:center;'
-                '">'
-                f'{safe_label}'
-                '</div>'
+            offset=(0, -5),
+            style=(
+                "background-color: rgba(20,28,38,0.92);"
+                "color: #ffffff;"
+                "font-size: 12px;"
+                "font-weight: 700;"
+                "line-height: 1.15;"
+                "padding: 4px 8px;"
+                "border: 1px solid rgba(255,255,255,0.92);"
+                "border-radius: 6px;"
+                "box-shadow: 0 2px 6px rgba(0,0,0,0.35);"
+                "white-space: nowrap;"
             ),
         ),
-        interactive=False,
     ).add_to(fmap)
 
     st_folium(
@@ -1454,12 +1440,57 @@ else:
             status_badge(message, "success" if ok else "error")
 
     with sp_col:
-        st.markdown("#### SharePoint · HTML")
-        status_badge("Agente externo + Supabase", "info")
-        st.caption(
-            "La aplicación guarda vínculos y muestra los HTML cuando el agente "
-            "de sincronización los incorpora a Supabase."
-        )
+        st.markdown("#### Agente SharePoint")
+        agent_status_summary = "No comprobado"
+        if not settings.supabase_configured:
+            status_badge("No es posible comprobarlo sin Supabase", "warning")
+            agent_status_summary = "Sin comprobación"
+        else:
+            try:
+                heartbeats = get_supabase_repo(settings).agent_heartbeats(
+                    active_within_seconds=180
+                )
+                active_agents = [
+                    item for item in heartbeats if item.get("active")
+                ]
+
+                if active_agents:
+                    agent = active_agents[0]
+                    host = str(agent.get("hostname") or "equipo sin nombre")
+                    age = agent.get("age_seconds")
+                    version = str(agent.get("version") or "—")
+                    status_badge(f"Agente activo · {host}", "success")
+                    if age is not None:
+                        st.caption(
+                            f"Última señal: hace {int(age)} s · Versión {version}"
+                        )
+                    else:
+                        st.caption(f"Versión {version}")
+                    agent_status_summary = f"Activo · {host}"
+                elif heartbeats:
+                    agent = heartbeats[0]
+                    host = str(agent.get("hostname") or "equipo sin nombre")
+                    age = agent.get("age_seconds")
+                    status_badge("Agente registrado, pero sin actividad reciente", "warning")
+                    if age is not None:
+                        st.caption(
+                            f"Última señal conocida: {host} · hace {int(age)} s"
+                        )
+                    else:
+                        st.caption(f"Último equipo registrado: {host}")
+                    agent_status_summary = "Registrado, inactivo"
+                else:
+                    status_badge("No se detecta un agente registrado", "warning")
+                    st.caption(
+                        "Streamlit Cloud no puede inspeccionar directamente la PC. "
+                        "La comprobación se realiza mediante la señal de vida que "
+                        "el agente publica en Supabase."
+                    )
+                    agent_status_summary = "No detectado"
+            except Exception as exc:
+                status_badge("No fue posible comprobar el agente", "error")
+                st.caption(str(exc))
+                agent_status_summary = "Error de comprobación"
 
     st.markdown("#### Estado de configuración")
     st.dataframe(
@@ -1473,8 +1504,8 @@ else:
                     "Configurado": settings.supabase_meters_table,
                 },
                 {
-                    "Componente": "SharePoint HTML",
-                    "Configurado": "Agente externo conectado a Supabase",
+                    "Componente": "Agente SharePoint",
+                    "Configurado": agent_status_summary,
                 },
                 {"Componente": "Modo demo", "Configurado": settings.demo_mode},
                 {
