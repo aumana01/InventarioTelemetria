@@ -1625,6 +1625,60 @@ def delete_review_dialog(
             st.error(f"No fue posible eliminar la revisión: {exc}")
 
 
+@st.dialog("Cambiar de caudalímetro")
+def confirm_equipment_change_dialog(
+    current_index: int,
+    target_index: int,
+    meters: pd.DataFrame,
+    key_column: str,
+    system_column: str | None,
+    name_column: str | None,
+) -> None:
+    current_label = meter_label(
+        meters.loc[current_index],
+        key_column,
+        system_column,
+        name_column,
+    )
+    target_label = meter_label(
+        meters.loc[target_index],
+        key_column,
+        system_column,
+        name_column,
+    )
+
+    st.warning(
+        "Si ha ingresado información en el formulario de revisión y todavía "
+        "no la ha guardado, esos cambios se perderán al cambiar de caudalímetro."
+    )
+    st.markdown(f"**Equipo actual:** {current_label}")
+    st.markdown(f"**Cambiar a:** {target_label}")
+
+    cancel_col, confirm_col = st.columns(2)
+    with cancel_col:
+        if st.button(
+            "Cancelar",
+            use_container_width=True,
+            key="cancel-equipment-change",
+        ):
+            st.session_state["meter_selector_index"] = current_index
+            st.session_state.pop("_pending_equipment_change_index", None)
+            st.rerun()
+
+    with confirm_col:
+        if st.button(
+            "Cambiar equipo",
+            type="primary",
+            use_container_width=True,
+            key="confirm-equipment-change",
+        ):
+            st.session_state["_active_review_equipment_index"] = target_index
+            st.session_state["meter_selector_index"] = target_index
+            st.session_state.pop("_pending_equipment_change_index", None)
+            st.session_state.pop("_last_map_clicked_equipment_key", None)
+            st.rerun()
+
+
 @st.dialog("Gráfico comparativo de mediciones", width="large")
 def large_graph_dialog(
     graph_content: bytes,
@@ -1949,19 +2003,47 @@ candidate_indices = sorted(
     ),
 )
 
-if pending_map_equipment_key:
-    pending_matches = [
-        idx
-        for idx in candidate_indices
-        if str(meters.loc[idx].get(key_column)) == str(pending_map_equipment_key)
-    ]
-    if pending_matches:
-        st.session_state["meter_selector_index"] = pending_matches[0]
+active_review_index = st.session_state.get(
+    "_active_review_equipment_index"
+)
 
-if st.session_state.get("meter_selector_index") not in candidate_indices:
-    st.session_state["meter_selector_index"] = candidate_indices[0]
+if page == "Revisión de equipo":
+    if active_review_index not in meters.index:
+        existing_selector_index = st.session_state.get("meter_selector_index")
+        if existing_selector_index in candidate_indices:
+            active_review_index = existing_selector_index
+        else:
+            active_review_index = candidate_indices[0]
+        st.session_state["_active_review_equipment_index"] = active_review_index
 
-selected_index = st.sidebar.selectbox(
+    # Si un filtro deja fuera al equipo activo, se adopta el primer resultado
+    # del filtro sin abrir una advertencia adicional.
+    if (
+        not pending_map_equipment_key
+        and active_review_index not in candidate_indices
+    ):
+        active_review_index = candidate_indices[0]
+        st.session_state["_active_review_equipment_index"] = active_review_index
+
+    if pending_map_equipment_key:
+        pending_matches = [
+            idx
+            for idx in candidate_indices
+            if str(meters.loc[idx].get(key_column))
+            == str(pending_map_equipment_key)
+        ]
+        if pending_matches:
+            target_index = pending_matches[0]
+            st.session_state["meter_selector_index"] = target_index
+            st.session_state["_pending_equipment_change_index"] = target_index
+
+    if st.session_state.get("meter_selector_index") not in candidate_indices:
+        st.session_state["meter_selector_index"] = active_review_index
+else:
+    if st.session_state.get("meter_selector_index") not in candidate_indices:
+        st.session_state["meter_selector_index"] = candidate_indices[0]
+
+requested_index = st.sidebar.selectbox(
     "Caudalímetro / nombre",
     options=candidate_indices,
     key="meter_selector_index",
@@ -1972,6 +2054,32 @@ selected_index = st.sidebar.selectbox(
         name_column,
     ),
 )
+
+if page == "Revisión de equipo":
+    if requested_index != active_review_index:
+        st.session_state["_pending_equipment_change_index"] = requested_index
+
+    pending_change_index = st.session_state.get(
+        "_pending_equipment_change_index"
+    )
+    if (
+        pending_change_index in meters.index
+        and pending_change_index != active_review_index
+    ):
+        confirm_equipment_change_dialog(
+            int(active_review_index),
+            int(pending_change_index),
+            meters,
+            key_column,
+            system_column,
+            name_column,
+        )
+        selected_index = int(active_review_index)
+    else:
+        selected_index = int(active_review_index)
+else:
+    selected_index = requested_index
+
 selected_row = meters.loc[selected_index]
 equipment_key = str(selected_row.get(key_column))
 selected_system_name = meter_system(selected_row, system_column)
@@ -2010,7 +2118,13 @@ if page == "Revisión de equipo":
         if (
             clicked_equipment_key
             and str(clicked_equipment_key) != equipment_key
+            and not st.session_state.get("_pending_equipment_change_index")
+            and str(clicked_equipment_key)
+            != str(st.session_state.get("_last_map_clicked_equipment_key") or "")
         ):
+            st.session_state["_last_map_clicked_equipment_key"] = str(
+                clicked_equipment_key
+            )
             st.session_state["_pending_map_equipment_key"] = str(
                 clicked_equipment_key
             )
