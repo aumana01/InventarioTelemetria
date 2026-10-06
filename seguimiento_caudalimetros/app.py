@@ -386,7 +386,7 @@ def render_review_equipment_map(
     system_column: str | None = None,
     name_column: str | None = None,
     height: int = 500,
-) -> None:
+) -> str | None:
     """Mapa de revisión: equipo activo destacado y caudalímetros vecinos atenuados."""
     selected_lat = selected_row.get("LATITUD")
     selected_lon = selected_row.get("LONGITUD")
@@ -497,18 +497,54 @@ def render_review_equipment_map(
         ),
     ).add_to(fmap)
 
-    st_folium(
+    map_state = st_folium(
         fmap,
         width=None,
         height=height,
         use_container_width=True,
-        returned_objects=[],
+        returned_objects=["last_object_clicked"],
         key=f"review-map-{selected_key}-{selected_lat:.6f}-{selected_lon:.6f}",
     )
     st.caption(
         f"{selected_label} · WGS84: {selected_lat:.6f}, {selected_lon:.6f} · "
-        "Azul: equipo activo · Ámbar: otros caudalímetros visibles en el entorno."
+        "Azul: equipo activo · Ámbar: otros caudalímetros. "
+        "Haga clic en otro punto para cambiar de equipo."
     )
+
+    clicked = (
+        map_state.get("last_object_clicked")
+        if isinstance(map_state, dict)
+        else None
+    )
+    if not isinstance(clicked, dict):
+        return None
+
+    clicked_lat = clicked.get("lat")
+    clicked_lon = clicked.get("lng")
+    if clicked_lon is None:
+        clicked_lon = clicked.get("lon")
+    try:
+        clicked_lat = float(clicked_lat)
+        clicked_lon = float(clicked_lon)
+    except (TypeError, ValueError):
+        return None
+
+    nearest_key: str | None = None
+    nearest_distance: float | None = None
+    for _, meter in inventory.iterrows():
+        meter_lat = meter.get("LATITUD")
+        meter_lon = meter.get("LONGITUD")
+        if pd.isna(meter_lat) or pd.isna(meter_lon):
+            continue
+        distance = (
+            (float(meter_lat) - clicked_lat) ** 2
+            + (float(meter_lon) - clicked_lon) ** 2
+        )
+        if nearest_distance is None or distance < nearest_distance:
+            nearest_distance = distance
+            nearest_key = str(meter.get(key_column, ""))
+
+    return nearest_key
 
 
 def render_measurement_point_map(
@@ -1843,10 +1879,19 @@ if page == "Dashboard":
                      demo_mode=settings.demo_mode)
     st.stop()
 
+pending_map_equipment_key = st.session_state.pop(
+    "_pending_map_equipment_key",
+    None,
+)
+if pending_map_equipment_key:
+    st.session_state["meter_search_text"] = ""
+    st.session_state["meter_system_filter"] = "Todos"
+
 st.sidebar.markdown("### Buscar equipo")
 search_text = st.sidebar.text_input(
     "Sistema o nombre",
     placeholder="Ej.: MEA01, Planta Alta Salida",
+    key="meter_search_text",
 )
 
 filtered_meters = meters.copy()
@@ -1859,9 +1904,13 @@ if system_column:
         },
         key=lambda value: search_normalized(value),
     )
+    system_options = ["Todos"] + system_values
+    if st.session_state.get("meter_system_filter") not in system_options:
+        st.session_state["meter_system_filter"] = "Todos"
     selected_system = st.sidebar.selectbox(
         "Sistema de Abastecimiento",
-        options=["Todos"] + system_values,
+        options=system_options,
+        key="meter_system_filter",
     )
     if selected_system != "Todos":
         filtered_meters = filtered_meters[
@@ -1900,9 +1949,22 @@ candidate_indices = sorted(
     ),
 )
 
+if pending_map_equipment_key:
+    pending_matches = [
+        idx
+        for idx in candidate_indices
+        if str(meters.loc[idx].get(key_column)) == str(pending_map_equipment_key)
+    ]
+    if pending_matches:
+        st.session_state["meter_selector_index"] = pending_matches[0]
+
+if st.session_state.get("meter_selector_index") not in candidate_indices:
+    st.session_state["meter_selector_index"] = candidate_indices[0]
+
 selected_index = st.sidebar.selectbox(
     "Caudalímetro / nombre",
     options=candidate_indices,
+    key="meter_selector_index",
     format_func=lambda idx: meter_label(
         meters.loc[idx],
         key_column,
@@ -1937,7 +1999,7 @@ if page == "Revisión de equipo":
     top_map, top_data = st.columns([0.48, 0.52], gap="large")
     with top_map:
         st.markdown("#### Ubicación del equipo")
-        render_review_equipment_map(
+        clicked_equipment_key = render_review_equipment_map(
             selected_row,
             meters,
             key_column=key_column,
@@ -1945,6 +2007,14 @@ if page == "Revisión de equipo":
             name_column=name_column,
             height=390,
         )
+        if (
+            clicked_equipment_key
+            and str(clicked_equipment_key) != equipment_key
+        ):
+            st.session_state["_pending_map_equipment_key"] = str(
+                clicked_equipment_key
+            )
+            st.rerun()
 
     with top_data:
         st.markdown("#### Atributos de la geodatabase")
