@@ -421,6 +421,20 @@ def render_review_equipment_map(
         max_zoom=20,
     ).add_to(fmap)
 
+    # Cuando varios equipos están muy próximos, las etiquetas permanentes
+    # se distribuyen alrededor de los puntos para reducir traslapes visuales.
+    label_slots = [
+        ("top", (0, -8)),
+        ("right", (8, 0)),
+        ("bottom", (0, 8)),
+        ("left", (-8, 0)),
+        ("top", (78, -24)),
+        ("top", (-78, -24)),
+        ("bottom", (78, 24)),
+        ("bottom", (-78, 24)),
+    ]
+    placed_reference_points: list[tuple[float, float]] = []
+
     for _, meter in inventory.iterrows():
         meter_lat = meter.get("LATITUD")
         meter_lon = meter.get("LONGITUD")
@@ -431,6 +445,19 @@ def render_review_equipment_map(
         if meter_key == selected_key:
             continue
 
+        meter_lat_f = float(meter_lat)
+        meter_lon_f = float(meter_lon)
+        nearby_count = sum(
+            1
+            for placed_lat, placed_lon in placed_reference_points
+            if abs(meter_lat_f - placed_lat) <= 0.00035
+            and abs(meter_lon_f - placed_lon) <= 0.00035
+        )
+        label_direction, label_offset = label_slots[
+            nearby_count % len(label_slots)
+        ]
+        placed_reference_points.append((meter_lat_f, meter_lon_f))
+
         reference_label = meter_label(
             meter,
             key_column,
@@ -438,7 +465,7 @@ def render_review_equipment_map(
             name_column,
         )
         folium.CircleMarker(
-            location=[float(meter_lat), float(meter_lon)],
+            location=[meter_lat_f, meter_lon_f],
             radius=5,
             color="#F59E0B",
             weight=1.5,
@@ -450,18 +477,21 @@ def render_review_equipment_map(
                 html.escape(reference_label),
                 permanent=True,
                 sticky=False,
-                direction="top",
-                offset=(0, -4),
+                direction=label_direction,
+                offset=label_offset,
                 style=(
                     "background-color: rgba(255,248,235,0.88);"
                     "color: #7c4a03;"
                     "font-size: 10px;"
                     "font-weight: 600;"
+                    "line-height: 1.15;"
                     "padding: 2px 6px;"
                     "border: 1px solid rgba(245,158,11,0.65);"
                     "border-radius: 5px;"
                     "box-shadow: 0 1px 3px rgba(0,0,0,0.18);"
-                    "white-space: nowrap;"
+                    "white-space: normal;"
+                    "max-width: 180px;"
+                    "text-align: left;"
                     "opacity: 0.92;"
                 ),
             ),
@@ -508,6 +538,7 @@ def render_review_equipment_map(
     st.caption(
         f"{selected_label} · WGS84: {selected_lat:.6f}, {selected_lon:.6f} · "
         "Azul: equipo activo · Ámbar: otros caudalímetros. "
+        "Las etiquetas cercanas se distribuyen automáticamente para mejorar la lectura. "
         "Haga clic en otro punto para cambiar de equipo."
     )
 
