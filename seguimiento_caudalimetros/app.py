@@ -458,12 +458,9 @@ def render_review_equipment_map(
         ]
         placed_reference_points.append((meter_lat_f, meter_lon_f))
 
-        reference_label = meter_label(
-            meter,
-            key_column,
-            system_column,
-            name_column,
-        )
+        reference_label = meter_name(meter, name_column)
+        if not reference_label:
+            reference_label = str(meter.get(key_column, "Caudalímetro"))
         folium.CircleMarker(
             location=[meter_lat_f, meter_lon_f],
             radius=5,
