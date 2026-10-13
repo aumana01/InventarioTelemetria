@@ -2174,34 +2174,6 @@ if page == "Revisión de equipo":
         st.markdown("### CONTROL GENERAL DE LA REVISIÓN")
         control_fields = render_control_general_equipment("new")
 
-        rectification_status = st.radio(
-            "¿El equipo se ha logrado rectificar con otro equipo de forma simultánea?",
-            options=list(RECTIFICATION_VALUES),
-            horizontal=True,
-        )
-        rectification_equipment = ""
-        if rectification_status == "Sí, con medición simultánea":
-            rectification_equipment = st.text_input(
-                "¿Con cuál equipo se realizó la rectificación?",
-                placeholder="Ej.: ultrasónico portátil / marca-modelo / código interno",
-            )
-
-        g1, g2 = st.columns(2)
-        measurement_quality = g1.selectbox(
-            "Calidad de medición",
-            options=list(QUALITY_VALUES),
-            index=1,
-        )
-        last_maintenance_date = g2.date_input(
-            "Fecha del último mantenimiento / revisión",
-            value=None,
-            max_value=date.today(),
-        )
-        reviewed_by = st.text_input(
-            "Revisado por",
-            placeholder="Nombre o usuario responsable",
-        )
-
         maintenance_fields = render_maintenance_section(
             "new",
             equipment_type=control_fields["equipment_type"],
@@ -2242,6 +2214,34 @@ if page == "Revisión de equipo":
                 "Referencia del punto de medición",
                 placeholder="Ej.: válvula, hidrante, cámara o punto aguas abajo",
             )
+
+        rectification_status = st.radio(
+            "¿El equipo se ha logrado rectificar con otro equipo de forma simultánea?",
+            options=list(RECTIFICATION_VALUES),
+            horizontal=True,
+        )
+        rectification_equipment = ""
+        if rectification_status == "Sí, con medición simultánea":
+            rectification_equipment = st.text_input(
+                "¿Con cuál equipo se realizó la rectificación?",
+                placeholder="Ej.: ultrasónico portátil / marca-modelo / código interno",
+            )
+
+        g1, g2 = st.columns(2)
+        measurement_quality = g1.selectbox(
+            "Calidad de medición",
+            options=list(QUALITY_VALUES),
+            index=1,
+        )
+        last_maintenance_date = g2.date_input(
+            "Fecha del último mantenimiento / revisión",
+            value=None,
+            max_value=date.today(),
+        )
+        reviewed_by = st.text_input(
+            "Revisado por",
+            placeholder="Nombre o usuario responsable",
+        )
 
         st.markdown("### GRÁFICO COMPARATIVO")
         graph_options = [
