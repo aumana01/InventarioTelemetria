@@ -8,6 +8,7 @@ from src.core import (
     determine_key_column,
     determine_key_column_from_frame,
     maintenance_due_status,
+    latest_equipment_control_values,
     parse_measurement_coordinates,
     parse_sharepoint_attachment_url,
     snapshot_from_row,
@@ -15,6 +16,26 @@ from src.core import (
     validate_review,
     validate_review_signature,
 )
+
+
+def test_recover_last_defined_serials_from_revision_history():
+    history = [
+        {"equipment_type": "Ultrasónico", "equipment_serial": None,
+         "transducer_serial": ""},
+        {"equipment_type": "No definido", "equipment_serial": "EQ-NUEVO",
+         "transducer_serial": None},
+        {"equipment_type": "Electromagnético", "equipment_serial": "EQ-ANTERIOR",
+         "transducer_serial": "TD-ANTERIOR"},
+    ]
+    assert latest_equipment_control_values(history) == {
+        "equipment_type": "Ultrasónico",
+        "equipment_serial": "EQ-NUEVO",
+        "transducer_serial": "TD-ANTERIOR",
+    }
+
+
+def test_recover_serials_with_no_prior_reviews():
+    assert latest_equipment_control_values([]) == {}
 
 
 def test_determine_key_column_prefers_configured():
