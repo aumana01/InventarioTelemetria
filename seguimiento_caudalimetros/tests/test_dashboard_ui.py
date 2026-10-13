@@ -14,6 +14,8 @@ def test_dashboard_navigation_is_independent_of_single_meter_selection(monkeypat
     at.sidebar.radio[0].set_value("Dashboard").run()
     assert not at.exception
     assert at.title[0].value == "Dashboard"
+    assert not any("correo" in element.value.lower() for element in at.subheader)
+    assert not any("correo" in button.label.lower() for button in at.button)
     assert at.dataframe[0].value.shape[0] == 3
     assert not at.sidebar.selectbox
     at.selectbox(key="dashboard-table").set_value("Detalle por aspecto").run()
