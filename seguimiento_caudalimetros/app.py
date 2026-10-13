@@ -146,6 +146,15 @@ def load_dashboard_reviews(current_settings: Settings) -> list[dict[str, Any]]:
     return get_supabase_repo(current_settings).list_dashboard_reviews()
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def load_equipment_control_defaults(
+    current_settings: Settings,
+    equipment_key: str,
+) -> dict[str, str]:
+    """Últimos tipo y números de serie guardados para un equipo específico."""
+    return get_supabase_repo(current_settings).equipment_control_defaults(equipment_key)
+
+
 @st.cache_resource
 def get_email_audit_repo(current_settings: Settings) -> EmailAuditRepository:
     return EmailAuditRepository(current_settings)
@@ -1633,6 +1642,7 @@ def edit_review_dialog(
 
             review_repo.update_review(review_id, payload)
             load_dashboard_reviews.clear()
+            load_equipment_control_defaults.clear()
 
             if storage_path_to_cleanup and storage_path_to_cleanup != new_storage_path:
                 try:
@@ -1677,6 +1687,7 @@ def delete_review_dialog(
                 graph_storage_path=review.get("graph_storage_path"),
             )
             load_dashboard_reviews.clear()
+            load_equipment_control_defaults.clear()
             message = "Revisión eliminada correctamente."
             if result.get("storage_warning"):
                 message += " " + str(result["storage_warning"])
@@ -2203,9 +2214,24 @@ if page == "Revisión de equipo":
 
     form_left, form_right = st.columns(2, gap="large")
 
+    saved_equipment_values: dict[str, str] = {}
+    if settings.supabase_configured:
+        try:
+            saved_equipment_values = load_equipment_control_defaults(
+                settings, equipment_key
+            )
+        except Exception as exc:
+            st.warning(
+                "No se pudieron recuperar los datos previos del equipo. "
+                f"Verifique la conexión con Supabase: {exc}"
+            )
+
     with form_left:
         st.markdown("### CONTROL GENERAL DE LA REVISIÓN")
-        control_fields = render_control_general_equipment("new")
+        control_fields = render_control_general_equipment(
+            f"new-{equipment_key}",
+            saved_equipment_values,
+        )
 
         maintenance_fields = render_maintenance_section(
             "new",
@@ -2504,6 +2530,7 @@ if page == "Revisión de equipo":
 
                     saved = review_repo.insert_review(payload)
                     load_dashboard_reviews.clear()
+                    load_equipment_control_defaults.clear()
                     st.success(
                         "Revisión guardada correctamente. "
                         f"ID: {saved.get('id', 'registrado')}"
