@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import src.supabase_repository as repository_module
-from src.supabase_repository import SupabaseMeterRepository
+from src.supabase_repository import SupabaseMeterRepository, SupabaseReviewRepository
 
 
 class FakeResponse:
@@ -112,3 +112,58 @@ def test_load_meters_uses_only_latest_sync_batch(monkeypatch):
     assert len(result) == 1
     assert int(result.iloc[0]["OBJECTID"]) == 2
     assert result.iloc[0]["Nombre"] == "Registro vigente"
+
+
+def test_equipment_control_defaults_are_scoped_and_persist_across_blank_revisions():
+    rows = [
+        {"equipment_key": "A", "reviewed_at": "2026-10-09T12:00:00Z",
+         "equipment_type": "Ultrasónico", "equipment_serial": None, "transducer_serial": None},
+        {"equipment_key": "B", "reviewed_at": "2026-10-08T12:00:00Z",
+         "equipment_type": "Ultrasónico", "equipment_serial": "OTRO", "transducer_serial": "OTRO-T"},
+        {"equipment_key": "A", "reviewed_at": "2026-10-07T12:00:00Z",
+         "equipment_type": "Ultrasónico", "equipment_serial": "EQ-A", "transducer_serial": "TR-A"},
+    ]
+
+    class ControlQuery:
+        def __init__(self):
+            self.equipment = None
+            self.start = 0
+            self.end = 100
+
+        def select(self, *_args):
+            return self
+
+        def eq(self, field, value):
+            assert field == "equipment_key"
+            self.equipment = value
+            return self
+
+        def order(self, field, desc=False):
+            assert field == "reviewed_at" and desc
+            return self
+
+        def range(self, start, end):
+            self.start, self.end = start, end
+            return self
+
+        def execute(self):
+            subset = sorted(
+                (r for r in rows if r["equipment_key"] == self.equipment),
+                key=lambda r: r["reviewed_at"], reverse=True,
+            )
+            return FakeResponse(subset[self.start:self.end + 1])
+
+    repo = object.__new__(SupabaseReviewRepository)
+    repo.table_name = "caudalimetro_revisiones"
+    repo.client = SimpleNamespace(table=lambda _: ControlQuery())
+
+    assert repo.equipment_control_defaults("A", page_size=1) == {
+        "equipment_type": "Ultrasónico",
+        "equipment_serial": "EQ-A",
+        "transducer_serial": "TR-A",
+    }
+    assert repo.equipment_control_defaults("B", page_size=1) == {
+        "equipment_type": "Ultrasónico",
+        "equipment_serial": "OTRO",
+        "transducer_serial": "OTRO-T",
+    }
