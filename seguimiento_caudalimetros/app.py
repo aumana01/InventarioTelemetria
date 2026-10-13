@@ -14,6 +14,7 @@ from streamlit_folium import st_folium
 
 from src.config import Settings
 from src.core import (
+    AUTHORIZED_REVIEWERS,
     QUALITY_VALUES,
     RECTIFICATION_VALUES,
     determine_key_column,
@@ -24,8 +25,10 @@ from src.core import (
     snapshot_from_row,
     validate_html_file,
     validate_review,
+    validate_review_signature,
 )
 from src.graph_renderer import render_stored_graph
+from src.dashboard import local_today, review_date as review_date_local
 from src.dashboard_ui import render_dashboard
 from src.email_delivery import EmailAuditRepository, EmailSettings
 from src.sql_repository import SqlMeterRepository
@@ -1325,38 +1328,6 @@ def edit_review_dialog(
         review,
     )
 
-    rectification_status = st.radio(
-        "Rectificación",
-        options=list(RECTIFICATION_VALUES),
-        index=_rectification_index(review.get("rectification_status")),
-        key=f"edit-rectification-{review_id}",
-    )
-    rectification_equipment = ""
-    if rectification_status == "Sí, con medición simultánea":
-        rectification_equipment = st.text_input(
-            "Equipo utilizado para rectificar",
-            value=str(review.get("rectification_equipment") or ""),
-            key=f"edit-rectification-equipment-{review_id}",
-        )
-
-    measurement_quality = st.selectbox(
-        "Calidad de medición",
-        options=list(QUALITY_VALUES),
-        index=_quality_index(review.get("measurement_quality")),
-        key=f"edit-quality-{review_id}",
-    )
-
-    last_maintenance_date = st.date_input(
-        "Fecha del último mantenimiento / revisión",
-        value=_review_date_value(review.get("last_maintenance_date")),
-        max_value=date.today(),
-        key=f"edit-maintenance-{review_id}",
-    )
-    reviewed_by = st.text_input(
-        "Revisado por",
-        value=str(review.get("reviewed_by") or ""),
-        key=f"edit-reviewed-by-{review_id}",
-    )
     notes = st.text_area(
         "Observaciones adicionales",
         value=str(review.get("notes") or ""),
@@ -1416,6 +1387,35 @@ def edit_review_dialog(
             key=f"edit-point-notes-{review_id}",
         )
 
+    st.markdown("#### Medición simultánea")
+    rectification_status = st.radio(
+        "¿El equipo se ha logrado rectificar con otro equipo de forma simultánea?",
+        options=list(RECTIFICATION_VALUES),
+        index=_rectification_index(review.get("rectification_status")),
+        key=f"edit-rectification-{review_id}",
+    )
+    rectification_equipment = ""
+    measurement_quality = None
+    last_maintenance_date = None
+    if rectification_status == "Sí, con medición simultánea":
+        rectification_equipment = st.text_input(
+            "Equipo utilizado para rectificar",
+            value=str(review.get("rectification_equipment") or ""),
+            key=f"edit-rectification-equipment-{review_id}",
+        )
+        measurement_quality = st.selectbox(
+            "Calidad de medición",
+            options=list(QUALITY_VALUES),
+            index=_quality_index(review.get("measurement_quality")),
+            key=f"edit-quality-{review_id}",
+        )
+        last_maintenance_date = st.date_input(
+            "Fecha del último mantenimiento / medición",
+            value=_review_date_value(review.get("last_maintenance_date")),
+            max_value=local_today(),
+            key=f"edit-maintenance-{review_id}",
+        )
+
     st.markdown("#### Gráfico")
     graph_labels = {
         "none": "Sin gráfico",
@@ -1463,6 +1463,32 @@ def edit_review_dialog(
             ),
         )
 
+    st.markdown("### FIRMA Y CIERRE DE LA REVISIÓN")
+    old_reviewer = str(review.get("reviewed_by") or "").strip()
+    if old_reviewer and old_reviewer not in AUTHORIZED_REVIEWERS:
+        st.info(
+            f"Responsable histórico: {old_reviewer}. "
+            "Seleccione una persona autorizada para guardar cambios."
+        )
+    reviewed_by = st.selectbox(
+        "Responsable de la revisión (firma)",
+        options=("", *AUTHORIZED_REVIEWERS),
+        index=(
+            AUTHORIZED_REVIEWERS.index(old_reviewer) + 1
+            if old_reviewer in AUTHORIZED_REVIEWERS else 0
+        ),
+        format_func=lambda value: value or "Seleccione una persona autorizada",
+        key=f"edit-reviewed-by-{review_id}",
+    )
+    signed_review_date = st.date_input(
+        "Fecha de la revisión del equipo",
+        value=(_review_date_value(review.get("review_date"))
+               or review_date_local(review.get("reviewed_at"))
+               or local_today()),
+        max_value=local_today(),
+        key=f"edit-review-date-{review_id}",
+    )
+
     if st.button(
         "Guardar cambios",
         type="primary",
@@ -1479,6 +1505,11 @@ def edit_review_dialog(
             "measurement_quality": measurement_quality,
         }
         errors = list(validate_review(validation_data).errors)
+        errors.extend(
+            validate_review_signature(
+                reviewed_by, signed_review_date, today=local_today()
+            ).errors
+        )
         if control_fields.get("equipment_type") == "No definido":
             errors.append("Seleccione el tipo de equipo.")
         if (
@@ -1574,7 +1605,8 @@ def edit_review_dialog(
                     else None
                 ),
                 "notes": notes.strip() or None,
-                "reviewed_by": reviewed_by.strip() or None,
+                "reviewed_by": reviewed_by or None,
+                "review_date": signed_review_date.isoformat(),
                 "measurement_latitude": (
                     measurement_latitude if register_measurement_point else None
                 ),
@@ -2227,21 +2259,20 @@ if page == "Revisión de equipo":
                 placeholder="Ej.: ultrasónico portátil / marca-modelo / código interno",
             )
 
-        g1, g2 = st.columns(2)
-        measurement_quality = g1.selectbox(
-            "Calidad de medición",
-            options=list(QUALITY_VALUES),
-            index=1,
-        )
-        last_maintenance_date = g2.date_input(
-            "Fecha del último mantenimiento / revisión",
-            value=None,
-            max_value=date.today(),
-        )
-        reviewed_by = st.text_input(
-            "Revisado por",
-            placeholder="Nombre o usuario responsable",
-        )
+        measurement_quality = None
+        last_maintenance_date = None
+        if rectification_status == "Sí, con medición simultánea":
+            g1, g2 = st.columns(2)
+            measurement_quality = g1.selectbox(
+                "Calidad de medición",
+                options=list(QUALITY_VALUES),
+                index=1,
+            )
+            last_maintenance_date = g2.date_input(
+                "Fecha del último mantenimiento / medición",
+                value=None,
+                max_value=local_today(),
+            )
 
         st.markdown("### GRÁFICO COMPARATIVO")
         graph_options = [
@@ -2313,6 +2344,24 @@ if page == "Revisión de equipo":
         notes = st.text_area("Observaciones adicionales", height=90)
 
     st.markdown("---")
+    st.markdown("### FIRMA Y CIERRE DE LA REVISIÓN")
+    sig1, sig2 = st.columns(2)
+    reviewed_by = sig1.selectbox(
+        "Responsable de la revisión (firma)",
+        options=("", *AUTHORIZED_REVIEWERS),
+        format_func=lambda value: value or "Seleccione una persona autorizada",
+    )
+    signed_review_date = sig2.date_input(
+        "Fecha de la revisión del equipo",
+        value=local_today(),
+        max_value=local_today(),
+    )
+    st.caption(
+        "La firma identifica a la persona que realizó la revisión general, "
+        "aunque no se haya efectuado una medición simultánea."
+    )
+
+    st.markdown("---")
     save_disabled = not settings.supabase_configured
     if save_disabled:
         st.warning(
@@ -2337,6 +2386,11 @@ if page == "Revisión de equipo":
         }
         validation = validate_review(data)
         errors = list(validation.errors)
+        errors.extend(
+            validate_review_signature(
+                reviewed_by, signed_review_date, today=local_today()
+            ).errors
+        )
         if control_fields.get("equipment_type") == "No definido":
             errors.append("Seleccione el tipo de equipo.")
         if (
@@ -2428,7 +2482,8 @@ if page == "Revisión de equipo":
                             else None
                         ),
                         "notes": notes.strip() or None,
-                        "reviewed_by": reviewed_by.strip() or None,
+                        "reviewed_by": reviewed_by or None,
+                        "review_date": signed_review_date.isoformat(),
                     }
                     if graph_source == "sharepoint_link":
                         payload["graph_original_url"] = sharepoint_url.strip()
@@ -2489,8 +2544,12 @@ elif page == "Ficha e historial":
 
     def review_label(index: int) -> str:
         review = reviews[index]
-        reviewed_at = review.get("reviewed_at") or "Sin fecha"
-        quality = review.get("measurement_quality") or "Sin calidad"
+        reviewed_at = review.get("review_date") or review.get("reviewed_at") or "Sin fecha"
+        quality = (
+            "No aplica"
+            if review.get("rectification_status") == "No se ha realizado"
+            else review.get("measurement_quality") or "Sin calidad"
+        )
         return f"{reviewed_at} — {quality}"
 
     selected_review_index = st.selectbox(
@@ -2541,12 +2600,20 @@ elif page == "Ficha e historial":
             ("Equipo usado para rectificar", review.get("rectification_equipment")),
             ("Tipo de equipo", review.get("equipment_type")),
             ("Número de serie", review.get("equipment_serial")),
-            ("Calidad", review.get("measurement_quality")),
+            ("Calidad de medición", (
+                "No aplica" if review.get("rectification_status") == "No se ha realizado"
+                else review.get("measurement_quality")
+            )),
             (
-                "Último mantenimiento / revisión",
-                review.get("last_maintenance_date"),
+                "Último mantenimiento / medición",
+                ("No aplica" if review.get("rectification_status") == "No se ha realizado"
+                 else review.get("last_maintenance_date")),
             ),
-            ("Revisado por", review.get("reviewed_by")),
+            ("Revisado por (firma)", review.get("reviewed_by")),
+            ("Fecha de revisión", (
+                review.get("review_date")
+                or review_date_local(review.get("reviewed_at"))
+            )),
         ]
         st.dataframe(
             pd.DataFrame(detail_rows, columns=["Campo", "Valor"]),
@@ -2610,6 +2677,7 @@ elif page == "Ficha e historial":
     history = pd.DataFrame(reviews)
     wanted = [
         "reviewed_at",
+        "review_date",
         "measurement_quality",
         "equipment_type",
         "equipment_serial",
