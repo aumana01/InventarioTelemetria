@@ -13,6 +13,7 @@ from src.core import (
     snapshot_from_row,
     validate_html_file,
     validate_review,
+    validate_review_signature,
 )
 
 
@@ -36,6 +37,59 @@ def test_validate_review_requires_rectification_equipment():
     )
     assert not result.ok
     assert any("cuál equipo" in error for error in result.errors)
+
+
+def test_sin_medicion_no_requiere_calidad():
+    result = validate_review(
+        {
+            "rectification_status": "No se ha realizado",
+            "rectification_equipment": "",
+            "is_ultrasonic": False,
+            "measurement_quality": None,
+        }
+    )
+    assert result.ok
+
+
+def test_sin_medicion_rechaza_calidad_no_aplicable():
+    result = validate_review(
+        {
+            "rectification_status": "No se ha realizado",
+            "rectification_equipment": "",
+            "is_ultrasonic": False,
+            "measurement_quality": "Buena",
+        }
+    )
+    assert not result.ok
+    assert any("no aplica" in error for error in result.errors)
+
+
+def test_con_medicion_requiere_calidad():
+    result = validate_review(
+        {
+            "rectification_status": "Sí, con medición simultánea",
+            "rectification_equipment": "Equipo portátil 01",
+            "is_ultrasonic": False,
+            "measurement_quality": None,
+        }
+    )
+    assert not result.ok
+    assert any("calidad" in error for error in result.errors)
+
+
+def test_firma_responsable_autorizado_y_fecha():
+    assert validate_review_signature(
+        "Allan Umaña Ortiz", date(2026, 10, 13), today=date(2026, 10, 13)
+    ).ok
+    assert not validate_review_signature(
+        "Persona no autorizada", date(2026, 10, 13), today=date(2026, 10, 13)
+    ).ok
+    assert not validate_review_signature(
+        "Allan Umaña Ortiz", None, today=date(2026, 10, 13)
+    ).ok
+    assert not validate_review_signature(
+        "Allan Umaña Ortiz", date(2026, 10, 14), today=date(2026, 10, 13)
+    ).ok
 
 
 def test_validate_ultrasonic_dimensions():
