@@ -86,6 +86,20 @@ def test_maintenance_repairs_and_general_states():
     assert summary.iloc[0]["Pendientes rojos"] == 4
 
 
+def test_sin_medicion_no_reporta_calidad_roja():
+    summary, detail = build_dashboard_tables(INVENTORY, [review(
+        rectification_status="No se ha realizado",
+        measurement_quality=None,
+        review_date="2026-10-03",
+    )], today=TODAY)
+    assert summary.iloc[0]["Fecha de revisión"] == date(2026, 10, 3)
+    assert summary.iloc[0]["Calidad"] == "No aplica"
+    point = detail[(detail["ID equipo"] == "A") & (detail["Aspecto"] == "Calidad de medición")].iloc[0]
+    assert point["Semáforo"] == GRAY
+    assert point["Estado"] == "No aplica (sin medición simultánea)"
+    assert detail[(detail["ID equipo"] == "A") & (detail["Aspecto"] == "Rectificación")].iloc[0]["Semáforo"] == RED
+
+
 def test_filters_combine_exact_date_system_state_type_and_search():
     _, detail = build_dashboard_tables(INVENTORY, [review(repair_signal_pending=True)], today=TODAY)
     result = filter_dashboard(detail, selections={"Sistema": ["Guadalupe"], "Semáforo": [RED],
