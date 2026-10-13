@@ -12,6 +12,15 @@ from urllib.parse import unquote, urlparse
 
 QUALITY_VALUES = ("Excelente", "Buena", "Regular", "Mala")
 RECTIFICATION_VALUES = ("No se ha realizado", "Sí, con medición simultánea")
+AUTHORIZED_REVIEWERS = (
+    "Allan Umaña Ortiz",
+    "Andrey Arrieta Mendez",
+    "Jose David Soto Flores",
+    "Valerie Chavez Ruphuy",
+    "Manuel Jimenez Rivera",
+    "Jefferson Mayorga Cerdas",
+    "Alexander Vargas Guevara",
+)
 EQUIPMENT_TYPE_VALUES = (
     "No definido",
     "Ultrasónico",
@@ -219,9 +228,30 @@ def validate_review(data: Mapping[str, Any]) -> ValidationResult:
             if value <= 0:
                 errors.append(f"La {label} debe ser mayor que cero para un equipo ultrasónico.")
 
-    if data.get("measurement_quality") not in QUALITY_VALUES:
-        errors.append("Seleccione una calidad de medición válida.")
+    quality = data.get("measurement_quality")
+    if rectification == "Sí, con medición simultánea":
+        if quality not in QUALITY_VALUES:
+            errors.append("Seleccione una calidad de medición válida.")
+    elif rectification == "No se ha realizado" and quality not in (None, ""):
+        errors.append("La calidad de medición no aplica si no hubo medición simultánea.")
 
+    return ValidationResult(ok=not errors, errors=tuple(errors))
+
+
+def validate_review_signature(
+    reviewed_by: str | None,
+    signed_date: date | None,
+    *,
+    today: date | None = None,
+) -> ValidationResult:
+    """Valida responsable autorizado y fecha de firma de la revisión del equipo."""
+    errors: list[str] = []
+    if reviewed_by not in AUTHORIZED_REVIEWERS:
+        errors.append("Seleccione una persona autorizada para firmar la revisión.")
+    if not isinstance(signed_date, date):
+        errors.append("Indique la fecha de revisión del equipo.")
+    elif signed_date > (today or date.today()):
+        errors.append("La fecha de revisión no puede ser futura.")
     return ValidationResult(ok=not errors, errors=tuple(errors))
 
 
