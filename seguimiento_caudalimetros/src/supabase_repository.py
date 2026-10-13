@@ -8,7 +8,7 @@ from uuid import uuid4
 import pandas as pd
 
 from .config import Settings
-from .core import safe_filename, snapshot_from_row
+from .core import latest_equipment_control_values, safe_filename, snapshot_from_row
 
 
 def _client(settings: Settings):
@@ -237,6 +237,35 @@ class SupabaseReviewRepository:
     def latest_review(self, equipment_key: str) -> dict[str, Any] | None:
         rows = self.list_reviews(equipment_key=equipment_key, limit=1)
         return rows[0] if rows else None
+
+    def equipment_control_defaults(
+        self,
+        equipment_key: str,
+        page_size: int = 100,
+    ) -> dict[str, str]:
+        """Obtiene los últimos datos persistentes del equipo sin cargar fichas completas.
+
+        Se consulta solo el histórico de ese equipo, en orden descendente, hasta
+        encontrar tipo y ambas series o agotar las revisiones.
+        """
+        if page_size < 1:
+            raise ValueError("page_size debe ser positivo.")
+        result: dict[str, str] = {}
+        start = 0
+        while len(result) < 3:
+            query = (
+                self.client.table(self.table_name)
+                .select("equipment_type,equipment_serial,transducer_serial")
+                .eq("equipment_key", str(equipment_key))
+                .order("reviewed_at", desc=True)
+                .range(start, start + page_size - 1)
+            )
+            rows = getattr(query.execute(), "data", None) or []
+            result = latest_equipment_control_values(rows, result)
+            if len(rows) < page_size:
+                break
+            start += len(rows)
+        return result
 
     def list_dashboard_reviews(self, page_size: int = 500) -> list[dict[str, Any]]:
         """Read the complete history without the normal per-equipment limit."""
