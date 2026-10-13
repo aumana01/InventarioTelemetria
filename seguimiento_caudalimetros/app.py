@@ -1350,7 +1350,8 @@ def edit_review_dialog(
         review,
     )
 
-    st.markdown("#### Punto de medición")
+    st.markdown("### MEDICIÓN PUNTUAL COMPARATIVA")
+    st.markdown("#### Ubicación del punto de medición")
     has_measurement_point = (
         review.get("measurement_latitude") is not None
         and review.get("measurement_longitude") is not None
@@ -1416,7 +1417,7 @@ def edit_review_dialog(
             key=f"edit-maintenance-{review_id}",
         )
 
-    st.markdown("#### Gráfico")
+    st.markdown("#### Gráfico comparativo")
     graph_labels = {
         "none": "Sin gráfico",
         "manual": "Archivo HTML",
@@ -2218,7 +2219,8 @@ if page == "Revisión de equipo":
             control_fields["equipment_type"],
         )
 
-        st.markdown("### PUNTO DE MEDICIÓN PUNTUAL")
+        st.markdown("### MEDICIÓN PUNTUAL COMPARATIVA")
+        st.markdown("#### Ubicación del punto de medición")
         register_measurement_point = st.checkbox(
             "Registrar un punto de medición distinto o complementario al macromedidor"
         )
@@ -2247,6 +2249,7 @@ if page == "Revisión de equipo":
                 placeholder="Ej.: válvula, hidrante, cámara o punto aguas abajo",
             )
 
+        st.markdown("#### Medición simultánea")
         rectification_status = st.radio(
             "¿El equipo se ha logrado rectificar con otro equipo de forma simultánea?",
             options=list(RECTIFICATION_VALUES),
@@ -2274,7 +2277,7 @@ if page == "Revisión de equipo":
                 max_value=local_today(),
             )
 
-        st.markdown("### GRÁFICO COMPARATIVO")
+        st.markdown("#### Gráfico comparativo")
         graph_options = [
             "Sin gráfico",
             "Cargar archivo HTML",
