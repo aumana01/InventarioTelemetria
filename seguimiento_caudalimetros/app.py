@@ -30,7 +30,6 @@ from src.core import (
 from src.graph_renderer import render_stored_graph
 from src.dashboard import local_today, review_date as review_date_local
 from src.dashboard_ui import render_dashboard
-from src.email_delivery import EmailAuditRepository, EmailSettings
 from src.sql_repository import SqlMeterRepository
 from src.supabase_repository import SupabaseMeterRepository, SupabaseReviewRepository
 from src.ui import load_css, readonly_snapshot, review_summary, status_badge
@@ -153,11 +152,6 @@ def load_equipment_control_defaults(
 ) -> dict[str, str]:
     """Últimos tipo y números de serie guardados para un equipo específico."""
     return get_supabase_repo(current_settings).equipment_control_defaults(equipment_key)
-
-
-@st.cache_resource
-def get_email_audit_repo(current_settings: Settings) -> EmailAuditRepository:
-    return EmailAuditRepository(current_settings)
 
 
 def first_nonempty(row: pd.Series, candidates: list[str]) -> str:
@@ -1999,10 +1993,7 @@ if page == "Dashboard":
     ]
     if settings.demo_mode:
         st.info("Modo demostración: se muestran los equipos de ejemplo sin revisiones almacenadas.")
-    render_dashboard(dashboard_inventory, dashboard_reviews,
-                     email_settings=EmailSettings.load(),
-                     email_audit=get_email_audit_repo(settings) if settings.supabase_configured and not settings.demo_mode else None,
-                     demo_mode=settings.demo_mode)
+    render_dashboard(dashboard_inventory, dashboard_reviews)
     st.stop()
 
 pending_map_equipment_key = st.session_state.pop(
