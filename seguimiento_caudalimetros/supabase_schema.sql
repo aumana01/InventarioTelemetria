@@ -31,7 +31,7 @@ create table if not exists public.caudalimetro_revisiones (
     circumference_mm numeric,
     wall_thickness_mm numeric,
     transducer_distance_mm numeric,
-    measurement_quality text not null,
+    measurement_quality text,
 
     graph_source text not null default 'none',
     graph_format text not null default 'html',
@@ -48,6 +48,7 @@ create table if not exists public.caudalimetro_revisiones (
     failures text,
     notes text,
     reviewed_by text,
+    review_date date,
 
     maintenance_gel_applicable boolean not null default true,
     maintenance_gel_date date,
@@ -130,6 +131,20 @@ create table if not exists public.caudalimetro_revisiones (
 
 
 -- Migración segura para instalaciones existentes.
+-- Cuando no existe medición simultánea, la calidad es NULL.
+alter table public.caudalimetro_revisiones
+    alter column measurement_quality drop not null;
+
+-- Fecha de firma de la revisión (distinta del timestamp automático reviewed_at).
+alter table public.caudalimetro_revisiones
+    add column if not exists review_date date;
+
+-- Para registros históricos, inferir la fecha local de creación.
+-- Se conservan los nombres de los responsables tal como fueron registrados.
+update public.caudalimetro_revisiones
+set review_date = (reviewed_at at time zone 'America/Costa_Rica')::date
+where review_date is null;
+
 alter table public.caudalimetro_revisiones
     add column if not exists graph_original_url text;
 
