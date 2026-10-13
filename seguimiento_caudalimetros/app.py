@@ -2208,9 +2208,25 @@ if page == "Revisión de equipo":
 
     st.markdown("---")
     st.subheader("Formulario de revisión")
-    if selected_system_name:
-        st.caption(f"Sistema de Abastecimiento: {selected_system_name}")
-    st.caption(f"Equipo: {selected_meter_name or 'Sin nombre registrado'}")
+    # Encabezado destacado: deja claro a qué caudalímetro se aplican los cambios.
+    active_equipment_name = html.escape(
+        selected_meter_name or "Sin nombre registrado"
+    )
+    active_equipment_system = (
+        "<div class='equipment-review-focus__system'>"
+        "Sistema de Abastecimiento: "
+        f"<strong>{html.escape(selected_system_name)}</strong></div>"
+        if selected_system_name
+        else ""
+    )
+    st.html(
+        "<div class='equipment-review-focus' role='group' "
+        "aria-label='Equipo seleccionado para revisión'>"
+        "<div class='equipment-review-focus__label'>Equipo en revisión</div>"
+        f"<div class='equipment-review-focus__name'>{active_equipment_name}</div>"
+        f"{active_equipment_system}"
+        "</div>"
+    )
 
     form_left, form_right = st.columns(2, gap="large")
 
