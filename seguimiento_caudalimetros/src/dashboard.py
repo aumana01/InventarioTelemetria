@@ -157,10 +157,12 @@ def build_dashboard_tables(inventory: Iterable[Mapping[str, Any]], reviews: Iter
             "Tipo de equipo": _type(review, meter or snapshot),
             "Serie": _text(review.get("equipment_serial"), "Sin serie"),
             "Estado inventario": _first(meter, "Estado inventario", default="Sin dato"),
-            "Fecha de revisión": review_date(review.get("reviewed_at")),
+            "Fecha de revisión": (review_date(review.get("review_date"))
+                                  or review_date(review.get("reviewed_at"))),
             "Último mantenimiento": parse_optional_date(review.get("last_maintenance_date")),
             "Revisado por": _text(review.get("reviewed_by"), "Sin responsable"),
-            "Calidad": _text(review.get("measurement_quality"), "Sin dato"),
+            "Calidad": ("No aplica" if review.get("rectification_status") == "No se ha realizado"
+                        else _text(review.get("measurement_quality"), "Sin dato")),
             "Rectificación": _text(review.get("rectification_status"), "Sin dato"),
             "Gráfico": _graph(review) if has_review else "Sin gráfico",
             "Observaciones": _text(review.get("notes")),
@@ -192,10 +194,14 @@ def build_dashboard_tables(inventory: Iterable[Mapping[str, Any]], reviews: Iter
                 append("Reparación", label, RED if pending else GREEN,
                        "Pendiente" if pending else "Sin pendiente", meta["Fecha de revisión"],
                        detail=_text(review.get("repair_spare_part_detail")) if field == "repair_spare_part_required" else "")
-            quality_ok = review.get("measurement_quality") in {"Excelente", "Buena"}
-            append("Control general", "Calidad de medición", GREEN if quality_ok else RED,
-                   meta["Calidad"], meta["Fecha de revisión"])
             rectified = review.get("rectification_status") == "Sí, con medición simultánea"
+            if rectified:
+                quality_ok = review.get("measurement_quality") in {"Excelente", "Buena"}
+                append("Control general", "Calidad de medición", GREEN if quality_ok else RED,
+                       meta["Calidad"], meta["Fecha de revisión"])
+            else:
+                append("Control general", "Calidad de medición", GRAY,
+                       "No aplica (sin medición simultánea)")
             append("Control general", "Rectificación", GREEN if rectified else RED,
                    meta["Rectificación"], meta["Fecha de revisión"])
 
