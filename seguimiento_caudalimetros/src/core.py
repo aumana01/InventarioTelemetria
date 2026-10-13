@@ -204,6 +204,30 @@ def maintenance_due_status(
     return "success", f"🟢 Vigente hasta {due.strftime('%d/%m/%Y')}"
 
 
+def latest_equipment_control_values(
+    reviews: Iterable[Mapping[str, Any]],
+    current: Mapping[str, Any] | None = None,
+) -> dict[str, str]:
+    """Recupera para el mismo caudalímetro cada último dato no vacío.
+
+    Las revisiones deben estar ordenadas de más reciente a más antigua.
+    Una ficha posterior sin número de serie no borra el dato persistente.
+    """
+    values = dict(current or {})
+    keys = ("equipment_type", "equipment_serial", "transducer_serial")
+    for review in reviews:
+        for key in keys:
+            if values.get(key):
+                continue
+            value = str(review.get(key) or "").strip()
+            if not value or (key == "equipment_type" and value == "No definido"):
+                continue
+            values[key] = value
+        if all(values.get(key) for key in keys):
+            break
+    return {key: str(values[key]) for key in keys if values.get(key)}
+
+
 def validate_review(data: Mapping[str, Any]) -> ValidationResult:
     errors: list[str] = []
     rectification = data.get("rectification_status")
