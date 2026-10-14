@@ -12,6 +12,7 @@ from src.core import (
     parse_measurement_coordinates,
     parse_sharepoint_attachment_url,
     snapshot_from_row,
+    system_display_label,
     validate_html_file,
     validate_review,
     validate_review_signature,
@@ -36,6 +37,22 @@ def test_recover_last_defined_serials_from_revision_history():
 
 def test_recover_serials_with_no_prior_reviews():
     assert latest_equipment_control_values([]) == {}
+
+
+def test_system_filter_shows_code_and_name_from_catalog():
+    assert system_display_label("MEA16") == "ME-A-16 — Potrerillos San Antonio"
+    assert system_display_label("MAE16") == "ME-A-16 — Potrerillos San Antonio"
+    assert system_display_label("ME-A-02") == "ME-A-02 — Guadalupe"
+    assert system_display_label("ME-A-31") == "ME-A-31 — Puriscal"
+
+
+def test_system_filter_preserves_names_from_geodatabase_and_unknown_codes():
+    assert system_display_label("ME-A-16 POTRERILLOS SAN ANTONIO") == (
+        "ME-A-16 — POTRERILLOS SAN ANTONIO"
+    )
+    assert system_display_label("ME-A-23") == "ME-A-23"
+    assert system_display_label("Todos") == "Todos"
+    assert system_display_label("Sistema sin código") == "Sistema sin código"
 
 
 def test_determine_key_column_prefers_configured():
