@@ -875,11 +875,15 @@ def render_repairs_section(
     prefix: str,
     current: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    # Una revisión nueva inicia con todos los aspectos pendientes; al editar
+    # una revisión anterior se respetan sus valores realmente guardados.
+    is_new_review = current is None
     current = current or {}
     st.markdown("### ASPECTOS DE REPARACIÓN O MANTENIMIENTO")
     st.caption(
-        "Por defecto cada aspecto está en verde. Marque únicamente cuando exista "
-        "una falla, reparación o sustitución pendiente."
+        "En una revisión nueva, todos los aspectos aparecen en rojo (pendientes) "
+        "hasta que se verifiquen. Desmarque cada casilla cuando confirme "
+        "que no existe una falla, reparación o sustitución pendiente."
     )
 
     fields = [
@@ -907,7 +911,7 @@ def render_repairs_section(
         r1, r2 = st.columns([0.72, 0.28])
         pending = r1.checkbox(
             f"{label}: existe pendiente / falla",
-            value=bool(current.get(key, False)),
+            value=bool(current.get(key, is_new_review)),
             key=f"{prefix}-{key}",
         )
         with r2:
@@ -920,7 +924,7 @@ def render_repairs_section(
     p1, p2 = st.columns([0.72, 0.28])
     spare_required = p1.checkbox(
         "Requiere un repuesto particular",
-        value=bool(current.get("repair_spare_part_required", False)),
+        value=bool(current.get("repair_spare_part_required", is_new_review)),
         key=f"{prefix}-repair-spare-part",
     )
     with p2:
