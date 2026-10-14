@@ -12,6 +12,53 @@ from urllib.parse import unquote, urlparse
 
 QUALITY_VALUES = ("Excelente", "Buena", "Regular", "Mala")
 RECTIFICATION_VALUES = ("No se ha realizado", "Sí, con medición simultánea")
+SYSTEM_NAMES_BY_CODE = {
+    1: "Tres Ríos",
+    2: "Guadalupe",
+    3: "El Llano",
+    4: "Los Sitios",
+    5: "Salitral",
+    6: "San Juan de Dios",
+    7: "San Antonio Escazú",
+    8: "Los Cuadros",
+    9: "Alajuelita",
+    10: "Mata de Plátano",
+    11: "Guatuso Patarrá",
+    12: "Quitirrisí",
+    13: "San Jerónimo Moravia",
+    14: "San Rafael",
+    15: "San Pablo",
+    16: "Potrerillos San Antonio",
+    17: "La Valencia",
+    18: "Lámparas",
+    19: "Puente de Mulas",
+    20: "Padre Carazo",
+    21: "Chiverrales",
+    22: "Pizote",
+    24: "Matinilla",
+    25: "Sur Escazú",
+    26: "Ticufres Q Honda",
+    27: "El Guarco",
+    28: "Vista de Mar",
+    29: "Lajas",
+    30: "Jericó",
+    31: "Puriscal",
+}
+
+
+def system_display_label(value: str) -> str:
+    """Muestra el nombre de sistema junto al código, sin cambiar el valor filtrado."""
+    raw = str(value or "").strip()
+    if not raw or raw == "Todos":
+        return raw
+    match = re.match(r"^(?:ME[-\s]?A|MAE)[-\s]*0?(\d{1,2})(?!\d)", raw, flags=re.I)
+    if not match:
+        return raw
+    number = int(match.group(1))
+    name = raw[match.end():].strip(" -—:·") or SYSTEM_NAMES_BY_CODE.get(number, "")
+    return f"ME-A-{number:02d} — {name}" if name else raw
+
+
 AUTHORIZED_REVIEWERS = (
     "Allan Umaña Ortiz",
     "Andrey Arrieta Mendez",
