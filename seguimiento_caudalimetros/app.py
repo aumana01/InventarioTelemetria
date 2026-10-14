@@ -17,6 +17,7 @@ from src.core import (
     AUTHORIZED_REVIEWERS,
     QUALITY_VALUES,
     RECTIFICATION_VALUES,
+    system_display_label,
     determine_key_column,
     determine_key_column_from_frame,
     maintenance_due_status,
@@ -284,11 +285,11 @@ def meter_matches_search(
     system = meter_system(row, system_column)
     name = meter_name(row, name_column)
     plain_query = query.lower()
-    combined = f"{system} {name}".lower()
+    combined = f"{system} {system_display_label(system)} {name}".lower()
     if plain_query in combined:
         return True
     compact_query = search_normalized(query)
-    compact_combined = search_normalized(f"{system} {name}")
+    compact_combined = search_normalized(combined)
     return bool(compact_query and compact_query in compact_combined)
 
 
@@ -2007,7 +2008,7 @@ if pending_map_equipment_key:
 st.sidebar.markdown("### Buscar equipo")
 search_text = st.sidebar.text_input(
     "Sistema o nombre",
-    placeholder="Ej.: MEA01, Planta Alta Salida",
+    placeholder="Ej.: ME-A-16, Potrerillos, CNP 1",
     key="meter_search_text",
 )
 
@@ -2027,6 +2028,7 @@ if system_column:
     selected_system = st.sidebar.selectbox(
         "Sistema de Abastecimiento",
         options=system_options,
+        format_func=system_display_label,
         key="meter_system_filter",
     )
     if selected_system != "Todos":
