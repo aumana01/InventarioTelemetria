@@ -26,10 +26,10 @@ def test_new_review_starts_with_all_repairs_pending(monkeypatch):
     assert not at.exception
 
     for field in REPAIR_FIELDS:
-        assert at.checkbox(key=f"new-{field}").value is True
+        assert at.checkbox(key=f"new-DEMO-001-{field}").value is True
 
-    assert at.checkbox(key="new-repair-spare-part").value is True
-    assert any("todos los aspectos aparecen en rojo" in caption.value
+    assert at.checkbox(key="new-DEMO-001-repair-spare-part").value is True
+    assert any("todos los aspectos inician pendientes" in caption.value
                for caption in at.caption)
 
 
@@ -37,10 +37,10 @@ def test_pending_repair_can_be_marked_as_resolved(monkeypatch):
     monkeypatch.setenv("APP_DEMO_MODE", "true")
     at = AppTest.from_file(str(APP), default_timeout=30).run()
     assert not at.exception
-    at.checkbox(key="new-repair_signal_pending").uncheck().run()
+    at.checkbox(key="new-DEMO-001-repair_signal_pending").uncheck().run()
     assert not at.exception
-    assert at.checkbox(key="new-repair_signal_pending").value is False
-    assert at.checkbox(key="new-repair_calibration_pending").value is True
+    assert at.checkbox(key="new-DEMO-001-repair_signal_pending").value is False
+    assert at.checkbox(key="new-DEMO-001-repair_calibration_pending").value is True
 
 
 def test_comparative_measurement_routes_are_mutually_exclusive(monkeypatch):
@@ -61,3 +61,25 @@ def test_comparative_measurement_routes_are_mutually_exclusive(monkeypatch):
     assert not at.exception
     assert any(item.label == "Origen del gráfico" for item in at.radio)
     assert not any(item.label == "Caudal medido (L/s)" for item in at.number_input)
+
+
+
+def test_equipment_switch_drops_unsaved_repair_changes(monkeypatch):
+    monkeypatch.setenv("APP_DEMO_MODE", "true")
+    at = AppTest.from_file(str(APP), default_timeout=30).run()
+    assert not at.exception
+    at.checkbox(key="new-DEMO-001-repair_signal_pending").uncheck().run()
+    assert not at.exception
+
+    # El selector exige confirmar el cambio para no perder datos sin guardar.
+    at.sidebar.selectbox(key="meter_selector_index").set_value(1).run()
+    assert not at.exception
+    at.button(key="confirm-equipment-change").click().run()
+    assert not at.exception
+    assert at.checkbox(key="new-DEMO-002-repair_signal_pending").value is True
+
+    at.sidebar.selectbox(key="meter_selector_index").set_value(0).run()
+    assert not at.exception
+    at.button(key="confirm-equipment-change").click().run()
+    assert not at.exception
+    assert at.checkbox(key="new-DEMO-001-repair_signal_pending").value is True
