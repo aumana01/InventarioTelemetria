@@ -2715,6 +2715,11 @@ elif page == "Ficha e historial":
             if review.get("rectification_status") == "No se ha realizado"
             else review.get("measurement_quality") or "Sin calidad"
         )
+        mode = infer_measurement_mode(review)
+        if mode == "puntual":
+            flow = review.get("point_flow_lps")
+            description = f"{flow} L/s" if flow is not None else "Medición puntual"
+            return f"{reviewed_at} — {description}"
         return f"{reviewed_at} — {quality}"
 
     selected_review_index = st.selectbox(
@@ -2760,7 +2765,15 @@ elif page == "Ficha e historial":
 
     with detail_col:
         st.markdown("### Detalle de la revisión")
+        selected_measurement_mode = infer_measurement_mode(review)
         detail_rows = [
+            ("Modalidad de medición", (
+                MEASUREMENT_MODE_LABELS.get(selected_measurement_mode, "No registrada")
+            )),
+            ("Caudal puntual (L/s)", (
+                review.get("point_flow_lps")
+                if selected_measurement_mode == "puntual" else None
+            )),
             ("Rectificación", review.get("rectification_status")),
             ("Equipo usado para rectificar", review.get("rectification_equipment")),
             ("Tipo de equipo", review.get("equipment_type")),
@@ -2786,6 +2799,14 @@ elif page == "Ficha e historial":
             width="stretch",
         )
 
+        if selected_measurement_mode == "puntual":
+            st.markdown("#### Resultado de medición puntual")
+            if review.get("point_flow_lps") is not None:
+                st.metric("Caudal medido", f"{float(review['point_flow_lps']):,.3f} L/s")
+            if review.get("point_observations"):
+                st.markdown("**Observaciones de la medición puntual**")
+                st.write(review["point_observations"])
+
         if review.get("notes"):
             st.markdown("**Observaciones adicionales**")
             st.write(review.get("notes"))
@@ -2808,41 +2829,45 @@ elif page == "Ficha e historial":
         render_review_generalities(review)
 
     st.markdown("---")
-    st.markdown("### Gráfico comparativo de mediciones")
+    if infer_measurement_mode(review) != "puntual":
+        st.markdown("### Gráfico comparativo de mediciones")
 
-    if (
-        review.get("graph_source") == "sharepoint_link"
-        and review.get("graph_original_url")
-    ):
-        cached_path = review.get("graph_storage_path")
+        if (
+            review.get("graph_source") == "sharepoint_link"
+            and review.get("graph_original_url")
+        ):
+            cached_path = review.get("graph_storage_path")
 
-        if cached_path:
-            sync_left, sync_right = st.columns([0.72, 0.28])
-            with sync_left:
-                st.success("Estado del gráfico: sincronizado.")
-            with sync_right:
-                if st.button(
-                    "Solicitar nueva sincronización",
-                    key=f"resync-sharepoint-{review.get('id')}",
-                    use_container_width=True,
-                ):
-                    try:
-                        review_repo.mark_review_graph_pending(str(review.get("id")))
-                        st.success("Nueva sincronización solicitada.")
-                        st.rerun()
-                    except Exception as exc:
-                        st.error(f"No fue posible solicitar la sincronización: {exc}")
-        else:
-            st.info("Estado del gráfico: pendiente de importación automática.")
+            if cached_path:
+                sync_left, sync_right = st.columns([0.72, 0.28])
+                with sync_left:
+                    st.success("Estado del gráfico: sincronizado.")
+                with sync_right:
+                    if st.button(
+                        "Solicitar nueva sincronización",
+                        key=f"resync-sharepoint-{review.get('id')}",
+                        use_container_width=True,
+                    ):
+                        try:
+                            review_repo.mark_review_graph_pending(str(review.get("id")))
+                            st.success("Nueva sincronización solicitada.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"No fue posible solicitar la sincronización: {exc}")
+            else:
+                st.info("Estado del gráfico: pendiente de importación automática.")
 
-    render_graph_for_review(review, review_repo)
+        render_graph_for_review(review, review_repo)
 
-    st.markdown("---")
+        st.markdown("---")
     st.markdown("### Historial del equipo")
     history = pd.DataFrame(reviews)
     wanted = [
         "reviewed_at",
         "review_date",
+        "measurement_method",
+        "point_flow_lps",
+        "point_observations",
         "measurement_quality",
         "equipment_type",
         "equipment_serial",
