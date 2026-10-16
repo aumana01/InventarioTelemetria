@@ -33,12 +33,21 @@ def review_summary(review: Mapping[str, Any] | None) -> None:
         st.info("Este equipo todavía no tiene revisiones registradas en Supabase.")
         return
     ultrasonic = "Sí" if review.get("is_ultrasonic") else "No"
-    cards = [
-        ("Calidad", review.get("measurement_quality") or "—"),
-        ("Rectificación", review.get("rectification_status") or "—"),
-        ("Ultrasónico", ultrasonic),
-        ("Último mantenimiento", review.get("last_maintenance_date") or "—"),
-    ]
+    if review.get("measurement_method") == "puntual":
+        flow = review.get("point_flow_lps")
+        cards = [
+            ("Modalidad", "Medición puntual"),
+            ("Caudal medido (L/s)", f"{float(flow):.3f}" if flow is not None else "—"),
+            ("Rectificación", "No aplica"),
+            ("Ultrasónico", ultrasonic),
+        ]
+    else:
+        cards = [
+            ("Calidad", review.get("measurement_quality") or "—"),
+            ("Rectificación", review.get("rectification_status") or "—"),
+            ("Ultrasónico", ultrasonic),
+            ("Último mantenimiento", review.get("last_maintenance_date") or "—"),
+        ]
     cols = st.columns(4)
     for col, (label, value) in zip(cols, cards):
         col.metric(label, str(value))
