@@ -297,6 +297,27 @@ def maintenance_due_status(
     return "success", f"🟢 Vigente hasta {due.strftime('%d/%m/%Y')}"
 
 
+def review_prefill_values(
+    latest_review: Mapping[str, Any] | None,
+    equipment_defaults: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Prepara la nueva ficha desde la última revisión del mismo caudalímetro.
+
+    Mantiene False, None y fechas exactamente como fueron guardados; solo
+    recupera de revisiones previas los identificadores técnicos ausentes.
+    No incluye datos de la firma de la revisión nueva.
+    """
+    previous = dict(latest_review or {})
+    for field in ("equipment_type", "equipment_serial", "transducer_serial"):
+        old_value = previous.get(field)
+        missing = old_value is None or str(old_value).strip() == ""
+        if field == "equipment_type" and old_value == "No definido":
+            missing = True
+        if missing and (equipment_defaults or {}).get(field):
+            previous[field] = equipment_defaults[field]
+    return previous
+
+
 def latest_equipment_control_values(
     reviews: Iterable[Mapping[str, Any]],
     current: Mapping[str, Any] | None = None,
