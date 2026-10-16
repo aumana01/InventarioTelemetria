@@ -26,9 +26,8 @@ def infer_measurement_mode(review: Mapping[str, Any]) -> str | None:
         return "puntual"
     if review.get("graph_source") not in (None, "", "none"):
         return "temporal"
-    if (review.get("measurement_latitude") is not None
-            and review.get("measurement_longitude") is not None):
-        return "puntual"
+    # Coordenadas históricas solas no prueban que exista caudal puntual.
+    # Se mantiene la modalidad sin clasificar hasta que el usuario la indique.
     return None
 
 
