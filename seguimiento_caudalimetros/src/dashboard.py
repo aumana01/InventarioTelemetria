@@ -42,6 +42,17 @@ REPAIRS = (
     ("Sustitución temporal", "repair_temporary_replacement"),
     ("Sustitución permanente", "repair_permanent_replacement"),
 )
+TELEMETRY_FIELDS = frozenset({
+    "repair_signal_pending",
+    "repair_perspective_pending",
+    "repair_vision_cco_pending",
+    "repair_vision_scada_vr2_pending",
+    "repair_vision_reports_pending",
+})
+TELEMETRY_ASPECTS = tuple(
+    label for label, field in REPAIRS if field in TELEMETRY_FIELDS
+)
+
 META_COLUMNS = ["Registro", "ID equipo", "Sistema", "Equipo", "Tipo de equipo", "Serie",
                 "Estado inventario", "Fecha de revisión", "Último mantenimiento", "Revisado por",
                 "Modalidad de medición", "Caudal puntual (L/s)",
@@ -49,7 +60,8 @@ META_COLUMNS = ["Registro", "ID equipo", "Sistema", "Equipo", "Tipo de equipo", 
 DETAIL_COLUMNS = META_COLUMNS + ["Categoría", "Aspecto", "Semáforo", "Estado",
                                  "Fecha del aspecto", "Vence", "Detalle"]
 SUMMARY_COLUMNS = META_COLUMNS + ["Semáforo", "Estado", "Pendientes rojos", "Aspectos verdes",
-                                  "No aplica", "Detalle de pendientes"]
+                                  "No aplica", "Detalle de pendientes",
+                                  "Pendientes Telemetría", "Detalle pendientes Telemetría"]
 
 
 def local_today() -> date:
@@ -222,14 +234,67 @@ def build_dashboard_tables(inventory: Iterable[Mapping[str, Any]], reviews: Iter
                        meta["Rectificación"], meta["Fecha de revisión"])
 
         red = [a for a in aspects if a["Semáforo"] == RED]
+        telemetry_red = [
+            aspect for aspect in red
+            if aspect["Categoría"] == "Reparación"
+            and aspect["Aspecto"] in TELEMETRY_ASPECTS
+        ]
         green = sum(a["Semáforo"] == GREEN for a in aspects)
         summary_rows.append({**meta, "Semáforo": RED if red else GREEN,
                              "Estado": "Sin revisión" if not has_review else ("Con pendientes" if red else "Sin pendientes"),
                              "Pendientes rojos": len(red), "Aspectos verdes": green,
                              "No aplica": sum(a["Semáforo"] == GRAY for a in aspects),
-                             "Detalle de pendientes": "; ".join(f"{a['Aspecto']}: {a['Estado']}" for a in red)})
+                             "Detalle de pendientes": "; ".join(f"{a['Aspecto']}: {a['Estado']}" for a in red),
+                             "Pendientes Telemetría": len(telemetry_red),
+                             "Detalle pendientes Telemetría": "; ".join(
+                                 a["Aspecto"] for a in telemetry_red
+                             )})
         detail_rows.extend(aspects)
     return pd.DataFrame(summary_rows, columns=SUMMARY_COLUMNS), pd.DataFrame(detail_rows, columns=DETAIL_COLUMNS)
+
+
+def filter_telemetry_pending(
+    frame: pd.DataFrame,
+    all_aspects: pd.DataFrame,
+    selected_aspects: Iterable[str] | None = None,
+) -> pd.DataFrame:
+    """Selecciona exclusivamente pendientes de Telemetría.
+
+    En resumen devuelve las revisiones con al menos un pendiente en los
+    aspectos seleccionados. En detalle muestra solo los aspectos rojos
+    correspondientes, nunca fallas de otras áreas o revisiones antiguas
+    ajenas a la selección. El campo Registro evita mezclar revisiones
+    históricas de un mismo equipo.
+    """
+    allowed = set(TELEMETRY_ASPECTS)
+    selected = allowed if selected_aspects is None else allowed.intersection(selected_aspects)
+    if not selected or frame.empty or all_aspects.empty:
+        return frame.iloc[0:0].copy()
+
+    matching = all_aspects.loc[
+        all_aspects["Categoría"].eq("Reparación")
+        & all_aspects["Aspecto"].isin(selected)
+        & all_aspects["Semáforo"].eq(RED)
+    ]
+    if matching.empty:
+        return frame.iloc[0:0].copy()
+    if "Aspecto" in frame.columns:
+        return frame.loc[
+            frame["Registro"].isin(matching["Registro"])
+            & frame["Categoría"].eq("Reparación")
+            & frame["Aspecto"].isin(selected)
+            & frame["Semáforo"].eq(RED)
+        ].reset_index(drop=True)
+
+    filtered = frame.loc[frame["Registro"].isin(matching["Registro"])].copy()
+    grouped = matching.groupby("Registro", sort=False)["Aspecto"].agg(list)
+    filtered["Pendientes Telemetría"] = filtered["Registro"].map(
+        lambda key: len(grouped.get(key, []))
+    )
+    filtered["Detalle pendientes Telemetría"] = filtered["Registro"].map(
+        lambda key: "; ".join(grouped.get(key, []))
+    )
+    return filtered.reset_index(drop=True)
 
 
 def normalized_search(value: Any) -> str:
