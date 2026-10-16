@@ -25,6 +25,7 @@ from src.core import (
     infer_measurement_mode,
     maintenance_due_status,
     parse_measurement_coordinates,
+    review_prefill_values,
     parse_sharepoint_attachment_url,
     snapshot_from_row,
     validate_html_file,
@@ -157,6 +158,15 @@ def load_equipment_control_defaults(
 ) -> dict[str, str]:
     """Últimos tipo y números de serie guardados para un equipo específico."""
     return get_supabase_repo(current_settings).equipment_control_defaults(equipment_key)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def load_latest_equipment_review(
+    current_settings: Settings,
+    equipment_key: str,
+) -> dict[str, Any] | None:
+    """Última ficha guardada para el identificador del caudalímetro seleccionado."""
+    return get_supabase_repo(current_settings).latest_review(equipment_key)
 
 
 def first_nonempty(row: pd.Series, candidates: list[str]) -> str:
@@ -1714,6 +1724,7 @@ def edit_review_dialog(
             review_repo.update_review(review_id, payload)
             load_dashboard_reviews.clear()
             load_equipment_control_defaults.clear()
+            load_latest_equipment_review.clear()
 
             if storage_path_to_cleanup and storage_path_to_cleanup != new_storage_path:
                 try:
@@ -1759,6 +1770,7 @@ def delete_review_dialog(
             )
             load_dashboard_reviews.clear()
             load_equipment_control_defaults.clear()
+            load_latest_equipment_review.clear()
             message = "Revisión eliminada correctamente."
             if result.get("storage_warning"):
                 message += " " + str(result["storage_warning"])
@@ -2666,6 +2678,7 @@ if page == "Revisión de equipo":
                     saved = review_repo.insert_review(payload)
                     load_dashboard_reviews.clear()
                     load_equipment_control_defaults.clear()
+                    load_latest_equipment_review.clear()
                     st.success(
                         "Revisión guardada correctamente. "
                         f"ID: {saved.get('id', 'registrado')}"
