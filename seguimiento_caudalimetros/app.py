@@ -15,16 +15,20 @@ from streamlit_folium import st_folium
 from src.config import Settings
 from src.core import (
     AUTHORIZED_REVIEWERS,
+    MEASUREMENT_MODES,
+    MEASUREMENT_MODE_LABELS,
     QUALITY_VALUES,
     RECTIFICATION_VALUES,
     system_display_label,
     determine_key_column,
     determine_key_column_from_frame,
+    infer_measurement_mode,
     maintenance_due_status,
     parse_measurement_coordinates,
     parse_sharepoint_attachment_url,
     snapshot_from_row,
     validate_html_file,
+    validate_measurement_method,
     validate_review,
     validate_review_signature,
 )
@@ -1359,118 +1363,159 @@ def edit_review_dialog(
     )
 
     st.markdown("### MEDICIÓN PUNTUAL COMPARATIVA")
-    st.markdown("#### Ubicación del punto de medición")
-    has_measurement_point = (
-        review.get("measurement_latitude") is not None
-        and review.get("measurement_longitude") is not None
+    previous_mode = infer_measurement_mode(review)
+    measurement_mode = st.radio(
+        "¿Cómo se documentó la medición?",
+        options=list(MEASUREMENT_MODES),
+        index=(list(MEASUREMENT_MODES).index(previous_mode)
+               if previous_mode in MEASUREMENT_MODES else None),
+        format_func=lambda mode: MEASUREMENT_MODE_LABELS[mode],
+        key=f"edit-measurement-mode-{review_id}",
+        horizontal=True,
     )
-    register_measurement_point = st.checkbox(
-        "Registrar punto de medición puntual",
-        value=has_measurement_point,
-        key=f"edit-point-enabled-{review_id}",
-    )
+
+    point_flow_lps = None
+    point_observations = ""
+    register_measurement_point = False
     measurement_latitude_text = ""
     measurement_longitude_text = ""
     measurement_location_notes = ""
-    if register_measurement_point:
-        m1, m2 = st.columns(2)
-        measurement_latitude_text = m1.text_input(
-            "Latitud WGS84",
-            value=(
-                "" if review.get("measurement_latitude") is None
-                else str(review.get("measurement_latitude"))
-            ),
-            key=f"edit-lat-{review_id}",
-        )
-        measurement_longitude_text = m2.text_input(
-            "Longitud WGS84",
-            value=(
-                "" if review.get("measurement_longitude") is None
-                else str(review.get("measurement_longitude"))
-            ),
-            key=f"edit-lon-{review_id}",
-        )
-        measurement_location_notes = st.text_input(
-            "Referencia del punto",
-            value=str(review.get("measurement_location_notes") or ""),
-            key=f"edit-point-notes-{review_id}",
-        )
-
-    st.markdown("#### Medición simultánea")
-    rectification_status = st.radio(
-        "¿El equipo se ha logrado rectificar con otro equipo de forma simultánea?",
-        options=list(RECTIFICATION_VALUES),
-        index=_rectification_index(review.get("rectification_status")),
-        key=f"edit-rectification-{review_id}",
-    )
+    rectification_status = "No se ha realizado"
     rectification_equipment = ""
     measurement_quality = None
     last_maintenance_date = None
-    if rectification_status == "Sí, con medición simultánea":
-        rectification_equipment = st.text_input(
-            "Equipo utilizado para rectificar",
-            value=str(review.get("rectification_equipment") or ""),
-            key=f"edit-rectification-equipment-{review_id}",
-        )
-        measurement_quality = st.selectbox(
-            "Calidad de medición",
-            options=list(QUALITY_VALUES),
-            index=_quality_index(review.get("measurement_quality")),
-            key=f"edit-quality-{review_id}",
-        )
-        last_maintenance_date = st.date_input(
-            "Fecha del último mantenimiento / medición",
-            value=_review_date_value(review.get("last_maintenance_date")),
-            max_value=local_today(),
-            key=f"edit-maintenance-{review_id}",
-        )
-
-    st.markdown("#### Gráfico comparativo")
-    graph_labels = {
-        "none": "Sin gráfico",
-        "manual": "Archivo HTML",
-        "sharepoint_link": "Vínculo MS List / SharePoint",
-        "sharepoint": "Vínculo MS List / SharePoint",
-    }
-    graph_values = ["none", "manual", "sharepoint_link"]
-    normalized_source = (
-        "sharepoint_link" if old_graph_source == "sharepoint" else old_graph_source
-    )
-    if normalized_source not in graph_values:
-        normalized_source = "none"
-    selected_graph_source = st.selectbox(
-        "Origen del gráfico",
-        options=graph_values,
-        index=graph_values.index(normalized_source),
-        format_func=lambda value: graph_labels[value],
-        key=f"edit-graph-source-{review_id}",
-    )
-
-    sharepoint_url = ""
+    selected_graph_source = "none"
     replacement_html = None
-    if selected_graph_source == "sharepoint_link":
-        sharepoint_url = st.text_input(
-            "Hipervínculo SharePoint",
-            value=old_sharepoint_url,
-            key=f"edit-sharepoint-url-{review_id}",
+    sharepoint_url = ""
+
+    if measurement_mode == "puntual":
+        st.markdown("#### Medición puntual de caudal")
+        point_flow_lps = st.number_input(
+            "Caudal medido (L/s)",
+            min_value=0.0,
+            value=(float(review["point_flow_lps"])
+                   if review.get("point_flow_lps") is not None else None),
+            step=0.1,
+            format="%.3f",
+            placeholder="Ingrese el caudal registrado en L/s",
+            key=f"edit-point-flow-{review_id}",
         )
-        if sharepoint_url.strip():
-            parsed_link = parse_sharepoint_attachment_url(sharepoint_url)
-            if parsed_link and parsed_link.get("item_id"):
-                st.caption(
-                    f"ID detectado: {parsed_link['item_id']} · "
-                    f"{parsed_link.get('file_name') or 'archivo no identificado'}"
-                )
-    elif selected_graph_source == "manual":
-        replacement_html = st.file_uploader(
-            "Reemplazar HTML (opcional)",
-            type=["html", "htm"],
-            key=f"edit-html-{review_id}",
-            help=(
-                "Si ya existe un HTML manual y no selecciona otro archivo, "
-                "se conserva el actual."
-            ),
+        point_observations = st.text_area(
+            "Observaciones de la medición puntual",
+            value=str(review.get("point_observations") or ""),
+            key=f"edit-point-observations-{review_id}",
         )
+
+        st.markdown("#### Ubicación (opcional)")
+        has_measurement_point = (
+            review.get("measurement_latitude") is not None
+            and review.get("measurement_longitude") is not None
+        )
+        register_measurement_point = st.checkbox(
+            "Registrar ubicación de la medición, distinta o complementaria al macromedidor",
+            value=has_measurement_point,
+            key=f"edit-point-enabled-{review_id}",
+        )
+        if register_measurement_point:
+            m1, m2 = st.columns(2)
+            measurement_latitude_text = m1.text_input(
+                "Latitud WGS84",
+                value=("" if review.get("measurement_latitude") is None
+                       else str(review.get("measurement_latitude"))),
+                key=f"edit-lat-{review_id}",
+            )
+            measurement_longitude_text = m2.text_input(
+                "Longitud WGS84",
+                value=("" if review.get("measurement_longitude") is None
+                       else str(review.get("measurement_longitude"))),
+                key=f"edit-lon-{review_id}",
+            )
+            measurement_location_notes = st.text_input(
+                "Referencia del punto",
+                value=str(review.get("measurement_location_notes") or ""),
+                key=f"edit-point-notes-{review_id}",
+            )
+
+    elif measurement_mode == "temporal":
+        st.markdown("#### Medición temporal con gráfico")
+        rectification_status = st.radio(
+            "¿El equipo se ha logrado rectificar con otro equipo de forma simultánea?",
+            options=list(RECTIFICATION_VALUES),
+            index=_rectification_index(review.get("rectification_status")),
+            key=f"edit-rectification-{review_id}",
+        )
+        if rectification_status == "Sí, con medición simultánea":
+            rectification_equipment = st.text_input(
+                "Equipo utilizado para rectificar",
+                value=str(review.get("rectification_equipment") or ""),
+                key=f"edit-rectification-equipment-{review_id}",
+            )
+            measurement_quality = st.selectbox(
+                "Calidad de medición",
+                options=list(QUALITY_VALUES),
+                index=_quality_index(review.get("measurement_quality")),
+                key=f"edit-quality-{review_id}",
+            )
+            last_maintenance_date = st.date_input(
+                "Fecha del último mantenimiento / medición",
+                value=_review_date_value(review.get("last_maintenance_date")),
+                max_value=local_today(),
+                key=f"edit-maintenance-{review_id}",
+            )
+
+        st.markdown("#### Gráfico comparativo")
+        graph_labels = {
+            "manual": "Archivo HTML",
+            "sharepoint_link": "Vínculo MS List / SharePoint",
+        }
+        graph_values = list(graph_labels)
+        normalized_source = (
+            "sharepoint_link" if old_graph_source == "sharepoint" else old_graph_source
+        )
+        selected_graph_source = st.selectbox(
+            "Origen del gráfico",
+            options=graph_values,
+            index=(graph_values.index(normalized_source)
+                   if normalized_source in graph_values else 0),
+            format_func=lambda value: graph_labels[value],
+            key=f"edit-graph-source-{review_id}",
+        )
+
+        if selected_graph_source == "sharepoint_link":
+            sharepoint_url = st.text_input(
+                "Hipervínculo SharePoint",
+                value=old_sharepoint_url,
+                key=f"edit-sharepoint-url-{review_id}",
+            )
+            if sharepoint_url.strip():
+                parsed_link = parse_sharepoint_attachment_url(sharepoint_url)
+                if parsed_link and parsed_link.get("item_id"):
+                    st.caption(
+                        f"ID detectado: {parsed_link['item_id']} · "
+                        f"{parsed_link.get('file_name') or 'archivo no identificado'}"
+                    )
+        elif selected_graph_source == "manual":
+            replacement_html = st.file_uploader(
+                "Reemplazar HTML (opcional)",
+                type=["html", "htm"],
+                key=f"edit-html-{review_id}",
+                help="Si ya existe un HTML manual, se conserva si no carga otro.",
+            )
+    else:
+        # Un registro antiguo sin modalidad sigue siendo editable sin perder datos.
+        st.info(
+            "Esta revisión histórica no tiene modalidad registrada. Puede elegir "
+            "una de las dos opciones o conservarla sin cambiar estos datos."
+        )
+        rectification_status = (
+            str(review.get("rectification_status") or "No se ha realizado")
+        )
+        rectification_equipment = str(review.get("rectification_equipment") or "")
+        measurement_quality = review.get("measurement_quality")
+        last_maintenance_date = _review_date_value(review.get("last_maintenance_date"))
+        point_flow_lps = review.get("point_flow_lps")
+        point_observations = str(review.get("point_observations") or "")
+        selected_graph_source = old_graph_source
 
     st.markdown("### FIRMA Y CIERRE DE LA REVISIÓN")
     old_reviewer = str(review.get("reviewed_by") or "").strip()
