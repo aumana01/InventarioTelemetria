@@ -46,7 +46,7 @@ La geodatabase continúa siendo la fuente maestra. Supabase mantiene una copia o
 - Plotly.js 3.0.1 se instala una sola vez con la aplicación mediante `plotly==6.0.1`.
 - Permite guardar un vínculo original de Microsoft List / SharePoint y extraer el ID del adjunto cuando el URL contiene `/Attachments/{id}/archivo.html`.
 - Los vínculos de SharePoint quedan pendientes de sincronización local; un script abre Microsoft Edge con la sesión normal del usuario, extrae el HTML real y lo copia a Supabase.
-- Permite registrar un punto WGS84 específico de la medición, independiente de la ubicación del macromedidor.
+- **Medición Puntual Comparativa** admite dos rutas excluyentes: medición puntual con caudal en L/s y observaciones, o medición temporal con gráfico HTML / enlace SharePoint. La ubicación WGS84 del punto es opcional en la primera modalidad.
 - Muestra el HTML directamente dentro de la ficha mediante un iframe `sandbox`.
 - No requiere Microsoft Entra/App Registration para sincronizar adjuntos SharePoint: usa una sesión local persistente de Microsoft Edge.
 - Incluye diagnóstico separado para SQL, inventario Supabase, revisiones Supabase y Microsoft List.
@@ -84,6 +84,12 @@ Si ya utilizó la versión anterior de esos controles, ejecute además:
 `migration_20261005_data_checks_as_repairs.sql`
 
 Esta migración los convierte a pendientes de corrección con semáforo verde/rojo. Un valor histórico **No** se convierte en **Pendiente** y un valor **Sí** se convierte en **Sin pendiente**. Las columnas antiguas de fecha se conservan únicamente como histórico y dejan de mostrarse en la aplicación.
+
+Para activar las dos modalidades de **Medición Puntual Comparativa** en una instalación existente, ejecute en Supabase SQL Editor:
+
+`migration_20261016_puntual_temporal.sql`
+
+Agrega `measurement_method`, `point_flow_lps` y `point_observations` a las revisiones. Permite caudales de cero o mayores y conserva el historial anterior sin recodificar las mediciones originales.
 
 Para activar el almacenamiento optimizado de gráficos SharePoint, ejecute también:
 
