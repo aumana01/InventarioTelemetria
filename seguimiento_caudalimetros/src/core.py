@@ -10,6 +10,53 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 from urllib.parse import unquote, urlparse
 
+MEASUREMENT_MODES = ("puntual", "temporal")
+MEASUREMENT_MODE_LABELS = {
+    "puntual": "Medición puntual de caudal (L/s)",
+    "temporal": "Medición temporal con gráfico comparativo",
+}
+
+
+def infer_measurement_mode(review: Mapping[str, Any]) -> str | None:
+    """Conserva la compatibilidad de las fichas anteriores a la migración."""
+    value = str(review.get("measurement_method") or "").strip()
+    if value in MEASUREMENT_MODES:
+        return value
+    if review.get("point_flow_lps") is not None:
+        return "puntual"
+    if review.get("graph_source") not in (None, "", "none"):
+        return "temporal"
+    if (review.get("measurement_latitude") is not None
+            and review.get("measurement_longitude") is not None):
+        return "puntual"
+    return None
+
+
+def validate_measurement_method(
+    mode: str | None,
+    point_flow_lps: float | int | None = None,
+    graph_source: str = "none",
+    *,
+    allow_legacy_none: bool = False,
+) -> "ValidationResult":
+    """Solo una modalidad; caudal puntual real o gráfico de medición temporal."""
+    errors: list[str] = []
+    if mode is None and allow_legacy_none:
+        return ValidationResult(ok=True)
+    if mode not in MEASUREMENT_MODES:
+        errors.append("Seleccione medición puntual o medición temporal con gráfico.")
+    elif mode == "puntual":
+        try:
+            flow = float(point_flow_lps) if point_flow_lps is not None else None
+        except (TypeError, ValueError):
+            flow = None
+        if flow is None or not math.isfinite(flow) or flow < 0:
+            errors.append("Indique un caudal puntual válido en L/s (cero o mayor).")
+    elif graph_source not in ("manual", "sharepoint_link", "sharepoint"):
+        errors.append("Para la medición temporal debe adjuntar un HTML o vínculo SharePoint.")
+    return ValidationResult(ok=not errors, errors=tuple(errors))
+
+
 QUALITY_VALUES = ("Excelente", "Buena", "Regular", "Mala")
 RECTIFICATION_VALUES = ("No se ha realizado", "Sí, con medición simultánea")
 SYSTEM_NAMES_BY_CODE = {
