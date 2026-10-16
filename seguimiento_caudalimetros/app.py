@@ -2304,129 +2304,165 @@ if page == "Revisión de equipo":
         )
 
         st.markdown("### MEDICIÓN PUNTUAL COMPARATIVA")
-        st.markdown("#### Ubicación del punto de medición")
-        register_measurement_point = st.checkbox(
-            "Registrar un punto de medición distinto o complementario al macromedidor"
+        st.caption(
+            "Seleccione una de las dos formas de documentar la medición: "
+            "un valor puntual de caudal o un registro temporal mediante gráfico."
         )
+        measurement_mode = st.radio(
+            "Modalidad de medición",
+            options=list(MEASUREMENT_MODES),
+            index=None,
+            format_func=lambda mode: MEASUREMENT_MODE_LABELS[mode],
+            horizontal=True,
+            key=f"new-measurement-mode-{equipment_key}",
+        )
+
+        point_flow_lps = None
+        point_observations = ""
+        register_measurement_point = False
         measurement_latitude_text = ""
         measurement_longitude_text = ""
         measurement_location_notes = ""
-        if register_measurement_point:
-            meter_lat = selected_row.get("LATITUD")
-            meter_lon = selected_row.get("LONGITUD")
-            if pd.notna(meter_lat) and pd.notna(meter_lon):
-                st.caption(
-                    f"Referencia del macromedidor: {float(meter_lat):.6f}, "
-                    f"{float(meter_lon):.6f}. Ingrese abajo el punto real de la medición."
-                )
-            p1, p2 = st.columns(2)
-            measurement_latitude_text = p1.text_input(
-                "Latitud WGS84",
-                placeholder="Ej.: 9.928100",
-            )
-            measurement_longitude_text = p2.text_input(
-                "Longitud WGS84",
-                placeholder="Ej.: -84.090700",
-            )
-            measurement_location_notes = st.text_input(
-                "Referencia del punto de medición",
-                placeholder="Ej.: válvula, hidrante, cámara o punto aguas abajo",
-            )
-
-        st.markdown("#### Medición simultánea")
-        rectification_status = st.radio(
-            "¿El equipo se ha logrado rectificar con otro equipo de forma simultánea?",
-            options=list(RECTIFICATION_VALUES),
-            horizontal=True,
-        )
+        rectification_status = "No se ha realizado"
         rectification_equipment = ""
-        if rectification_status == "Sí, con medición simultánea":
-            rectification_equipment = st.text_input(
-                "¿Con cuál equipo se realizó la rectificación?",
-                placeholder="Ej.: ultrasónico portátil / marca-modelo / código interno",
-            )
-
         measurement_quality = None
         last_maintenance_date = None
-        if rectification_status == "Sí, con medición simultánea":
-            g1, g2 = st.columns(2)
-            measurement_quality = g1.selectbox(
-                "Calidad de medición",
-                options=list(QUALITY_VALUES),
-                index=1,
-            )
-            last_maintenance_date = g2.date_input(
-                "Fecha del último mantenimiento / medición",
-                value=None,
-                max_value=local_today(),
-            )
-
-        st.markdown("#### Gráfico comparativo")
-        graph_options = [
-            "Sin gráfico",
-            "Cargar archivo HTML",
-            "Vínculo MS List / SharePoint",
-        ]
-        graph_option = st.radio(
-            "Origen del gráfico",
-            graph_options,
-            horizontal=True,
-        )
-
+        graph_option = "Sin gráfico"
         uploaded_html = None
         sharepoint_url = ""
         sharepoint_item_id = None
         sharepoint_file_name = None
 
-        if graph_option == "Cargar archivo HTML":
-            uploaded_html = st.file_uploader(
-                "Archivo HTML de comparación",
-                type=["html", "htm"],
-                help=(
-                    "Se almacenará en un bucket privado de Supabase "
-                    "y se mostrará dentro de la ficha."
-                ),
+        if measurement_mode == "puntual":
+            st.markdown("#### Medición puntual de caudal")
+            point_flow_lps = st.number_input(
+                "Caudal medido (L/s)",
+                min_value=0.0,
+                value=None,
+                step=0.1,
+                format="%.3f",
+                placeholder="Ingrese el caudal medido",
+                key=f"new-point-flow-{equipment_key}",
             )
-            if uploaded_html:
-                validation = validate_html_file(
-                    uploaded_html.name,
-                    uploaded_html.getvalue(),
+            point_observations = st.text_area(
+                "Observaciones de la medición puntual",
+                placeholder="Condiciones hidráulicas, instrumento utilizado u otras observaciones",
+                key=f"new-point-observations-{equipment_key}",
+            )
+
+            st.markdown("#### Ubicación (opcional)")
+            register_measurement_point = st.checkbox(
+                "Registrar un punto de medición distinto o complementario al macromedidor",
+                key=f"new-point-location-{equipment_key}",
+            )
+            if register_measurement_point:
+                meter_lat = selected_row.get("LATITUD")
+                meter_lon = selected_row.get("LONGITUD")
+                if pd.notna(meter_lat) and pd.notna(meter_lon):
+                    st.caption(
+                        f"Referencia del macromedidor: {float(meter_lat):.6f}, "
+                        f"{float(meter_lon):.6f}. Ingrese abajo el punto real de la medición."
+                    )
+                p1, p2 = st.columns(2)
+                measurement_latitude_text = p1.text_input(
+                    "Latitud WGS84",
+                    placeholder="Ej.: 9.928100",
+                    key=f"new-point-lat-{equipment_key}",
                 )
-                if validation.ok:
-                    status_badge("HTML válido para carga", "success")
-                else:
-                    for error in validation.errors:
-                        st.error(error)
+                measurement_longitude_text = p2.text_input(
+                    "Longitud WGS84",
+                    placeholder="Ej.: -84.090700",
+                    key=f"new-point-lon-{equipment_key}",
+                )
+                measurement_location_notes = st.text_input(
+                    "Referencia del punto de medición",
+                    placeholder="Ej.: válvula, hidrante, cámara o punto aguas abajo",
+                    key=f"new-point-reference-{equipment_key}",
+                )
 
-        elif graph_option == "Vínculo MS List / SharePoint":
-            sharepoint_url = st.text_input(
-                "Hipervínculo del archivo HTML en Microsoft List / SharePoint",
-                placeholder=(
-                    "https://...sharepoint.com/.../Attachments/"
-                    "2324/grafico.html?web=1"
-                ),
+        elif measurement_mode == "temporal":
+            st.markdown("#### Medición temporal con gráfico")
+            rectification_status = st.radio(
+                "¿El equipo se ha logrado rectificar con otro equipo de forma simultánea?",
+                options=list(RECTIFICATION_VALUES),
+                horizontal=True,
+                key=f"new-rectification-{equipment_key}",
             )
-            parsed_link = parse_sharepoint_attachment_url(sharepoint_url)
-            if sharepoint_url.strip():
-                if parsed_link is None:
-                    st.warning(
-                        "El vínculo debe ser HTTPS y pertenecer a un dominio *.sharepoint.com."
-                    )
-                elif parsed_link.get("item_id"):
-                    st.caption(
-                        f"ID de Microsoft List detectado: {parsed_link['item_id']} · "
-                        f"Archivo: {parsed_link.get('file_name') or 'no identificado'}"
-                    )
-                else:
-                    st.caption(
-                        "El vínculo se guardará, aunque no se pudo extraer "
-                        "automáticamente el ID del elemento."
-                    )
+            if rectification_status == "Sí, con medición simultánea":
+                rectification_equipment = st.text_input(
+                    "¿Con cuál equipo se realizó la rectificación?",
+                    placeholder="Ej.: ultrasónico portátil / marca-modelo / código interno",
+                    key=f"new-rectification-equipment-{equipment_key}",
+                )
+                g1, g2 = st.columns(2)
+                measurement_quality = g1.selectbox(
+                    "Calidad de medición",
+                    options=list(QUALITY_VALUES),
+                    index=1,
+                    key=f"new-quality-{equipment_key}",
+                )
+                last_maintenance_date = g2.date_input(
+                    "Fecha del último mantenimiento / medición",
+                    value=None,
+                    max_value=local_today(),
+                    key=f"new-maintenance-date-{equipment_key}",
+                )
 
-            st.info(
-                "El vínculo se guardará y el agente de sincronización importará "
-                "automáticamente el gráfico desde SharePoint hacia Supabase."
+            st.markdown("#### Gráfico comparativo")
+            graph_option = st.radio(
+                "Origen del gráfico",
+                ["Cargar archivo HTML", "Vínculo MS List / SharePoint"],
+                horizontal=True,
+                key=f"new-graph-origin-{equipment_key}",
             )
+            if graph_option == "Cargar archivo HTML":
+                uploaded_html = st.file_uploader(
+                    "Archivo HTML de comparación",
+                    type=["html", "htm"],
+                    key=f"new-graph-html-{equipment_key}",
+                    help=(
+                        "Se almacenará en un bucket privado de Supabase "
+                        "y se mostrará dentro de la ficha."
+                    ),
+                )
+                if uploaded_html:
+                    validation = validate_html_file(
+                        uploaded_html.name, uploaded_html.getvalue()
+                    )
+                    if validation.ok:
+                        status_badge("HTML válido para carga", "success")
+                    else:
+                        for error in validation.errors:
+                            st.error(error)
+            else:
+                sharepoint_url = st.text_input(
+                    "Hipervínculo del archivo HTML en Microsoft List / SharePoint",
+                    placeholder=(
+                        "https://...sharepoint.com/.../Attachments/"
+                        "2324/grafico.html?web=1"
+                    ),
+                    key=f"new-graph-sharepoint-{equipment_key}",
+                )
+                parsed_link = parse_sharepoint_attachment_url(sharepoint_url)
+                if sharepoint_url.strip():
+                    if parsed_link is None:
+                        st.warning(
+                            "El vínculo debe ser HTTPS y pertenecer a un dominio *.sharepoint.com."
+                        )
+                    elif parsed_link.get("item_id"):
+                        st.caption(
+                            f"ID de Microsoft List detectado: {parsed_link['item_id']} · "
+                            f"Archivo: {parsed_link.get('file_name') or 'no identificado'}"
+                        )
+                    else:
+                        st.caption(
+                            "El vínculo se guardará, aunque no se pudo extraer "
+                            "automáticamente el ID del elemento."
+                        )
+                st.info(
+                    "El vínculo se guardará y el agente de sincronización importará "
+                    "automáticamente el gráfico desde SharePoint hacia Supabase."
+                )
 
         notes = st.text_area("Observaciones adicionales", height=90)
 
