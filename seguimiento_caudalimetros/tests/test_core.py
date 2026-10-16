@@ -9,6 +9,8 @@ from src.core import (
     determine_key_column_from_frame,
     maintenance_due_status,
     latest_equipment_control_values,
+    infer_measurement_mode,
+    validate_measurement_method,
     parse_measurement_coordinates,
     parse_sharepoint_attachment_url,
     snapshot_from_row,
@@ -17,6 +19,27 @@ from src.core import (
     validate_review,
     validate_review_signature,
 )
+
+
+def test_measurement_method_requires_one_of_two_paths():
+    assert not validate_measurement_method(None).ok
+    assert not validate_measurement_method("puntual", None).ok
+    assert validate_measurement_method("puntual", 0).ok
+    assert validate_measurement_method("puntual", 125.675).ok
+    assert not validate_measurement_method("puntual", -1).ok
+    assert not validate_measurement_method("puntual", float("nan")).ok
+    assert not validate_measurement_method("temporal", graph_source="none").ok
+    assert validate_measurement_method("temporal", graph_source="manual").ok
+    assert validate_measurement_method("temporal", graph_source="sharepoint_link").ok
+
+
+def test_old_revision_without_a_modality_remains_editable():
+    assert infer_measurement_mode({"graph_source": "none"}) is None
+    assert validate_measurement_method(None, allow_legacy_none=True).ok
+    assert infer_measurement_mode({"graph_source": "manual"}) == "temporal"
+    assert infer_measurement_mode({"point_flow_lps": 0}) == "puntual"
+    assert infer_measurement_mode({"measurement_latitude": 9.9,
+                                   "measurement_longitude": -84.1}) == "puntual"
 
 
 def test_recover_last_defined_serials_from_revision_history():
