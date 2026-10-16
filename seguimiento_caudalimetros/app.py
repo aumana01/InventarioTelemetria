@@ -2239,6 +2239,15 @@ selected_system_name = meter_system(selected_row, system_column)
 selected_meter_name = meter_name(selected_row, name_column)
 snapshot = snapshot_from_row(selected_row.to_dict())
 
+# El formulario nuevo cambia de identidad al cambiar de equipo.
+# Descarta widgets sin guardar para no mezclarlos con la última ficha de otro activo.
+if page == "Revisión de equipo":
+    if st.session_state.get("_new_form_equipment_key") != equipment_key:
+        for widget_key in list(st.session_state.keys()):
+            if str(widget_key).startswith("new-"):
+                del st.session_state[widget_key]
+        st.session_state["_new_form_equipment_key"] = equipment_key
+
 st.sidebar.caption(f"Resultados: {len(filtered_meters)} equipo(s)")
 if st.sidebar.button("Actualizar datos"):
     load_meters.clear()
@@ -2309,37 +2318,54 @@ if page == "Revisión de equipo":
         "</div>"
     )
 
-    form_left, form_right = st.columns(2, gap="large")
-
-    saved_equipment_values: dict[str, str] = {}
-    if settings.supabase_configured:
+    new_form_prefix = f"new-{equipment_key}"
+    last_review: dict[str, Any] | None = None
+    equipment_defaults: dict[str, str] = {}
+    if settings.supabase_configured and not settings.demo_mode:
         try:
-            saved_equipment_values = load_equipment_control_defaults(
-                settings, equipment_key
-            )
+            last_review = load_latest_equipment_review(settings, equipment_key)
+            equipment_defaults = load_equipment_control_defaults(settings, equipment_key)
         except Exception as exc:
             st.warning(
-                "No se pudieron recuperar los datos previos del equipo. "
-                f"Verifique la conexión con Supabase: {exc}"
+                "No se pudo recuperar la última ficha guardada de este equipo. "
+                f"Compruebe Supabase: {exc}"
             )
+    previous = review_prefill_values(last_review, equipment_defaults)
 
+    if last_review:
+        stamp = (
+            last_review.get("review_date")
+            or str(last_review.get("reviewed_at") or "")[:10]
+        )
+        reviewer = str(last_review.get("reviewed_by") or "Sin responsable registrado")
+        st.info(
+            f"Datos precargados de la última revisión del equipo "
+            f"({stamp or 'fecha no registrada'}; {reviewer}). "
+            "Verifique y actualice cada condición antes de guardar una nueva revisión. "
+            "La ficha histórica no se modifica."
+        )
+    else:
+        st.caption(
+            "No hay revisiones previas de este equipo. "
+            "Los aspectos de reparación se muestran inicialmente pendientes."
+        )
+
+    form_left, form_right = st.columns(2, gap="large")
     with form_left:
         st.markdown("### CONTROL GENERAL DE LA REVISIÓN")
         control_fields = render_control_general_equipment(
-            f"new-{equipment_key}",
-            saved_equipment_values,
+            new_form_prefix, previous
         )
-
         maintenance_fields = render_maintenance_section(
-            "new",
-            equipment_type=control_fields["equipment_type"],
+            new_form_prefix, previous, equipment_type=control_fields["equipment_type"]
         )
 
     with form_right:
-        repair_fields = render_repairs_section("new")
+        repair_fields = render_repairs_section(
+            new_form_prefix, previous if last_review else None
+        )
         equipment_fields = render_equipment_generalities(
-            "new",
-            control_fields["equipment_type"],
+            new_form_prefix, control_fields["equipment_type"], previous
         )
 
         st.markdown("### MEDICIÓN PUNTUAL COMPARATIVA")
