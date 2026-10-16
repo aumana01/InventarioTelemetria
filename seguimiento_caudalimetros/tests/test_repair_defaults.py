@@ -41,3 +41,23 @@ def test_pending_repair_can_be_marked_as_resolved(monkeypatch):
     assert not at.exception
     assert at.checkbox(key="new-repair_signal_pending").value is False
     assert at.checkbox(key="new-repair_calibration_pending").value is True
+
+
+def test_comparative_measurement_routes_are_mutually_exclusive(monkeypatch):
+    monkeypatch.setenv("APP_DEMO_MODE", "true")
+    at = AppTest.from_file(str(APP), default_timeout=30).run()
+    assert not at.exception
+    method = next(item for item in at.radio if item.label == "Modalidad de medición")
+    assert method.value is None
+
+    method.set_value("puntual").run()
+    assert not at.exception
+    assert any(item.label == "Caudal medido (L/s)" for item in at.number_input)
+    assert any(item.label == "Observaciones de la medición puntual" for item in at.text_area)
+    assert not any(item.label == "Origen del gráfico" for item in at.radio)
+
+    method = next(item for item in at.radio if item.label == "Modalidad de medición")
+    method.set_value("temporal").run()
+    assert not at.exception
+    assert any(item.label == "Origen del gráfico" for item in at.radio)
+    assert not any(item.label == "Caudal medido (L/s)" for item in at.number_input)
