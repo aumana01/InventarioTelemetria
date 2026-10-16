@@ -1821,7 +1821,7 @@ def confirm_equipment_change_dialog(
             use_container_width=True,
             key="cancel-equipment-change",
         ):
-            st.session_state["meter_selector_index"] = current_index
+            st.session_state["_selector_sync_index"] = current_index
             st.session_state.pop("_pending_equipment_change_index", None)
             st.rerun()
 
@@ -1833,7 +1833,9 @@ def confirm_equipment_change_dialog(
             key="confirm-equipment-change",
         ):
             st.session_state["_active_review_equipment_index"] = target_index
-            st.session_state["meter_selector_index"] = target_index
+            # El selector se sincroniza al inicio del siguiente render para no
+            # modificar una clave de widget ya instanciada en el diálogo.
+            st.session_state["_selector_sync_index"] = target_index
             st.session_state.pop("_pending_equipment_change_index", None)
             st.session_state.pop("_last_map_clicked_equipment_key", None)
             st.rerun()
@@ -2200,6 +2202,10 @@ if page == "Revisión de equipo":
 else:
     if st.session_state.get("meter_selector_index") not in candidate_indices:
         st.session_state["meter_selector_index"] = candidate_indices[0]
+
+selector_sync_index = st.session_state.pop("_selector_sync_index", None)
+if selector_sync_index in candidate_indices:
+    st.session_state["meter_selector_index"] = selector_sync_index
 
 requested_index = st.sidebar.selectbox(
     "Caudalímetro / nombre",
