@@ -1587,9 +1587,15 @@ def edit_review_dialog(
 
         new_storage_path = old_storage_path
         graph_format = old_graph_format
-        graph_original_url = None
-        sharepoint_item_id = None
-        sharepoint_file_name = None
+        graph_original_url = (
+            old_sharepoint_url if measurement_mode is None else None
+        )
+        sharepoint_item_id = (
+            review.get("sharepoint_item_id") if measurement_mode is None else None
+        )
+        sharepoint_file_name = (
+            review.get("sharepoint_file_name") if measurement_mode is None else None
+        )
         storage_path_to_cleanup = None
 
         if selected_graph_source == "none":
@@ -1631,6 +1637,12 @@ def edit_review_dialog(
                     "Seleccione un archivo HTML para cambiar el origen del gráfico a manual."
                 )
 
+        errors.extend(
+            validate_measurement_method(
+                measurement_mode, point_flow_lps, selected_graph_source,
+                allow_legacy_none=True,
+            ).errors
+        )
         if errors:
             for error in errors:
                 st.error(error)
@@ -1661,16 +1673,31 @@ def edit_review_dialog(
                 "notes": notes.strip() or None,
                 "reviewed_by": reviewed_by or None,
                 "review_date": signed_review_date.isoformat(),
+                "measurement_method": measurement_mode,
+                "point_flow_lps": (
+                    float(point_flow_lps)
+                    if measurement_mode == "puntual" and point_flow_lps is not None
+                    else (review.get("point_flow_lps") if measurement_mode is None else None)
+                ),
+                "point_observations": (
+                    point_observations.strip() or None
+                    if measurement_mode in ("puntual", None) else None
+                ),
                 "measurement_latitude": (
-                    measurement_latitude if register_measurement_point else None
+                    measurement_latitude if register_measurement_point
+                    else (review.get("measurement_latitude")
+                          if measurement_mode is None else None)
                 ),
                 "measurement_longitude": (
-                    measurement_longitude if register_measurement_point else None
+                    measurement_longitude if register_measurement_point
+                    else (review.get("measurement_longitude")
+                          if measurement_mode is None else None)
                 ),
                 "measurement_location_notes": (
                     measurement_location_notes.strip() or None
                     if register_measurement_point
-                    else None
+                    else (review.get("measurement_location_notes")
+                          if measurement_mode is None else None)
                 ),
                 "graph_source": selected_graph_source,
                 "graph_format": graph_format,
@@ -2565,6 +2592,11 @@ if page == "Revisión de equipo":
                 sharepoint_item_id = parsed_link.get("item_id")
                 sharepoint_file_name = parsed_link.get("file_name")
 
+        errors.extend(
+            validate_measurement_method(
+                measurement_mode, point_flow_lps, graph_source
+            ).errors
+        )
         if errors:
             for error in errors:
                 st.error(error)
@@ -2594,6 +2626,15 @@ if page == "Revisión de equipo":
                         "rectification_status": rectification_status,
                         "rectification_equipment": rectification_equipment or None,
                         "measurement_quality": measurement_quality,
+                        "measurement_method": measurement_mode,
+                        "point_flow_lps": (
+                            float(point_flow_lps) if measurement_mode == "puntual"
+                            and point_flow_lps is not None else None
+                        ),
+                        "point_observations": (
+                            point_observations.strip() or None
+                            if measurement_mode == "puntual" else None
+                        ),
                         "graph_source": graph_source,
                         "graph_format": "html",
                         "graph_storage_path": graph_storage_path,
