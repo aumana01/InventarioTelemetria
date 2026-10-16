@@ -43,6 +43,9 @@ create table if not exists public.caudalimetro_revisiones (
     measurement_latitude double precision,
     measurement_longitude double precision,
     measurement_location_notes text,
+    measurement_method text,
+    point_flow_lps numeric,
+    point_observations text,
 
     last_maintenance_date date,
     failures text,
@@ -104,6 +107,10 @@ create table if not exists public.caudalimetro_revisiones (
       check (rectification_status in ('No se ha realizado', 'Sí, con medición simultánea')),
     constraint caudalimetro_measurement_quality_chk
       check (measurement_quality in ('Excelente', 'Buena', 'Regular', 'Mala')),
+    constraint caudalimetro_measurement_method_chk
+      check (measurement_method in ('puntual', 'temporal')),
+    constraint caudalimetro_point_flow_chk
+      check (point_flow_lps >= 0),
     constraint caudalimetro_graph_source_chk
       check (graph_source in ('none', 'manual', 'sharepoint', 'sharepoint_link')),
     constraint caudalimetro_graph_format_chk
@@ -156,6 +163,27 @@ alter table public.caudalimetro_revisiones
 
 alter table public.caudalimetro_revisiones
     add column if not exists measurement_location_notes text;
+
+alter table public.caudalimetro_revisiones
+    add column if not exists measurement_method text,
+    add column if not exists point_flow_lps numeric,
+    add column if not exists point_observations text;
+
+-- Permite distinguir las dos modalidades sin modificar registros históricos.
+alter table public.caudalimetro_revisiones
+    drop constraint if exists caudalimetro_measurement_method_chk;
+
+alter table public.caudalimetro_revisiones
+    add constraint caudalimetro_measurement_method_chk
+      check (measurement_method in ('puntual', 'temporal'));
+
+alter table public.caudalimetro_revisiones
+    drop constraint if exists caudalimetro_point_flow_chk;
+
+alter table public.caudalimetro_revisiones
+    add constraint caudalimetro_point_flow_chk
+      check (point_flow_lps >= 0);
+
 
 alter table public.caudalimetro_revisiones
     add column if not exists graph_format text not null default 'html';
