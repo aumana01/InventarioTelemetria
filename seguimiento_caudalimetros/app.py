@@ -894,11 +894,16 @@ def render_repairs_section(
     is_new_review = current is None
     current = current or {}
     st.markdown("### ASPECTOS DE REPARACIÓN O MANTENIMIENTO")
-    st.caption(
-        "En una revisión nueva, todos los aspectos aparecen en rojo (pendientes) "
-        "hasta que se verifiquen. Desmarque cada casilla cuando confirme "
-        "que no existe una falla, reparación o sustitución pendiente."
-    )
+    if is_new_review:
+        st.caption(
+            "Sin revisión previa: todos los aspectos inician pendientes (rojo). "
+            "Desmarque los que haya verificado como sin pendiente."
+        )
+    else:
+        st.caption(
+            "Estados recuperados de la revisión anterior: verde = sin pendiente, "
+            "rojo = pendiente. Compruebe cada estado y actualice lo que corresponda."
+        )
 
     fields = [
         ("repair_signal_pending", "Señal"),
@@ -2252,6 +2257,9 @@ if page == "Revisión de equipo":
 st.sidebar.caption(f"Resultados: {len(filtered_meters)} equipo(s)")
 if st.sidebar.button("Actualizar datos"):
     load_meters.clear()
+    load_latest_equipment_review.clear()
+    load_equipment_control_defaults.clear()
+    st.session_state["_reset_new_form_next_run"] = True
     st.rerun()
 
 
@@ -2350,6 +2358,10 @@ if page == "Revisión de equipo":
             "No hay revisiones previas de este equipo. "
             "Los aspectos de reparación se muestran inicialmente pendientes."
         )
+
+    saved_notice = st.session_state.pop("_new_review_saved_notice", None)
+    if saved_notice:
+        st.success(saved_notice)
 
     form_left, form_right = st.columns(2, gap="large")
     with form_left:
@@ -2735,15 +2747,13 @@ if page == "Revisión de equipo":
                     load_dashboard_reviews.clear()
                     load_equipment_control_defaults.clear()
                     load_latest_equipment_review.clear()
-                    st.success(
+                    st.session_state["_reset_new_form_next_run"] = True
+                    st.session_state["_new_review_saved_notice"] = (
                         "Revisión guardada correctamente. "
-                        f"ID: {saved.get('id', 'registrado')}"
+                        f"ID: {saved.get('id', 'registrado')}. "
+                        "La ficha se ha actualizado con los valores guardados."
                     )
-                    if graph_source == "sharepoint_link":
-                        st.info(
-                            "Vínculo SharePoint guardado. El agente lo importará "
-                            "automáticamente a Supabase."
-                        )
+                    st.rerun()
                 except Exception as exc:
                     st.error(f"No fue posible guardar la revisión: {exc}")
 
