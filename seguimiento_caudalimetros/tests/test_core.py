@@ -39,7 +39,7 @@ def test_old_revision_without_a_modality_remains_editable():
     assert infer_measurement_mode({"graph_source": "manual"}) == "temporal"
     assert infer_measurement_mode({"point_flow_lps": 0}) == "puntual"
     assert infer_measurement_mode({"measurement_latitude": 9.9,
-                                   "measurement_longitude": -84.1}) == "puntual"
+                                   "measurement_longitude": -84.1}) is None
 
 
 def test_recover_last_defined_serials_from_revision_history():
