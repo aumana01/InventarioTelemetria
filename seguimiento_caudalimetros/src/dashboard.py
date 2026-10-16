@@ -44,6 +44,7 @@ REPAIRS = (
 )
 META_COLUMNS = ["Registro", "ID equipo", "Sistema", "Equipo", "Tipo de equipo", "Serie",
                 "Estado inventario", "Fecha de revisión", "Último mantenimiento", "Revisado por",
+                "Modalidad de medición", "Caudal puntual (L/s)",
                 "Calidad", "Rectificación", "Gráfico", "Observaciones", "Fallas"]
 DETAIL_COLUMNS = META_COLUMNS + ["Categoría", "Aspecto", "Semáforo", "Estado",
                                  "Fecha del aspecto", "Vence", "Detalle"]
@@ -147,6 +148,7 @@ def build_dashboard_tables(inventory: Iterable[Mapping[str, Any]], reviews: Iter
         snapshot = review.get("geodatabase_snapshot") or {}
         meter = meters.get(key, {})
         has_review = bool(review.get("id") or review.get("reviewed_at"))
+        method = review.get("measurement_method")
         meta = {
             "Registro": _text(review.get("id"), f"sin-revision-{index}"),
             "ID equipo": key,
@@ -161,7 +163,15 @@ def build_dashboard_tables(inventory: Iterable[Mapping[str, Any]], reviews: Iter
                                   or review_date(review.get("reviewed_at"))),
             "Último mantenimiento": parse_optional_date(review.get("last_maintenance_date")),
             "Revisado por": _text(review.get("reviewed_by"), "Sin responsable"),
-            "Calidad": ("No aplica" if review.get("rectification_status") == "No se ha realizado"
+            "Modalidad de medición": (
+                "Puntual" if method == "puntual"
+                else "Temporal con gráfico" if method == "temporal" else "Sin clasificar"
+            ),
+            "Caudal puntual (L/s)": (
+                review.get("point_flow_lps") if method == "puntual" else None
+            ),
+            "Calidad": ("No aplica" if method == "puntual" or
+                        review.get("rectification_status") == "No se ha realizado"
                         else _text(review.get("measurement_quality"), "Sin dato")),
             "Rectificación": _text(review.get("rectification_status"), "Sin dato"),
             "Gráfico": _graph(review) if has_review else "Sin gráfico",
@@ -195,15 +205,21 @@ def build_dashboard_tables(inventory: Iterable[Mapping[str, Any]], reviews: Iter
                        "Pendiente" if pending else "Sin pendiente", meta["Fecha de revisión"],
                        detail=_text(review.get("repair_spare_part_detail")) if field == "repair_spare_part_required" else "")
             rectified = review.get("rectification_status") == "Sí, con medición simultánea"
-            if rectified:
-                quality_ok = review.get("measurement_quality") in {"Excelente", "Buena"}
-                append("Control general", "Calidad de medición", GREEN if quality_ok else RED,
-                       meta["Calidad"], meta["Fecha de revisión"])
-            else:
+            if method == "puntual":
                 append("Control general", "Calidad de medición", GRAY,
-                       "No aplica (sin medición simultánea)")
-            append("Control general", "Rectificación", GREEN if rectified else RED,
-                   meta["Rectificación"], meta["Fecha de revisión"])
+                       "No aplica (medición puntual)")
+                append("Control general", "Rectificación", GRAY,
+                       "No aplica (medición puntual)")
+            else:
+                if rectified:
+                    quality_ok = review.get("measurement_quality") in {"Excelente", "Buena"}
+                    append("Control general", "Calidad de medición", GREEN if quality_ok else RED,
+                           meta["Calidad"], meta["Fecha de revisión"])
+                else:
+                    append("Control general", "Calidad de medición", GRAY,
+                           "No aplica (sin medición simultánea)")
+                append("Control general", "Rectificación", GREEN if rectified else RED,
+                       meta["Rectificación"], meta["Fecha de revisión"])
 
         red = [a for a in aspects if a["Semáforo"] == RED]
         green = sum(a["Semáforo"] == GREEN for a in aspects)
