@@ -9,6 +9,7 @@ from src.core import (
     determine_key_column_from_frame,
     maintenance_due_status,
     latest_equipment_control_values,
+    review_prefill_values,
     infer_measurement_mode,
     validate_measurement_method,
     parse_measurement_coordinates,
@@ -40,6 +41,48 @@ def test_old_revision_without_a_modality_remains_editable():
     assert infer_measurement_mode({"point_flow_lps": 0}) == "puntual"
     assert infer_measurement_mode({"measurement_latitude": 9.9,
                                    "measurement_longitude": -84.1}) is None
+
+
+def test_latest_review_prefill_preserves_saved_conditions_and_statuses():
+    previous = {
+        "equipment_type": "Ultrasónico",
+        "equipment_serial": None,
+        "transducer_serial": "T-123",
+        "circumference_mm": 800.0,
+        "maintenance_gel_applicable": False,
+        "maintenance_gel_date": None,
+        "maintenance_scada_working": False,
+        "maintenance_scada_check_date": "2026-09-27",
+        "repair_signal_pending": False,
+        "repair_power_pending": True,
+        "repair_spare_part_required": False,
+        "rectification_status": "No se ha realizado",
+        "measurement_method": "puntual",
+        "point_flow_lps": 25.5,
+        "point_observations": "Presión estable",
+        "notes": "Revisar nuevamente",
+        "reviewed_by": "Allan Umaña Ortiz",
+        "review_date": "2026-09-27",
+    }
+    result = review_prefill_values(
+        previous, {"equipment_serial": "EQ-124", "transducer_serial": "T-antiguo"}
+    )
+    assert result["equipment_serial"] == "EQ-124"
+    assert result["transducer_serial"] == "T-123"
+    assert result["maintenance_gel_applicable"] is False
+    assert result["maintenance_scada_working"] is False
+    assert result["repair_signal_pending"] is False
+    assert result["repair_power_pending"] is True
+    assert result["point_flow_lps"] == 25.5
+    assert result["notes"] == "Revisar nuevamente"
+    assert previous["equipment_serial"] is None  # No modifica ficha histórica
+
+
+def test_review_prefill_initial_state_without_history():
+    assert review_prefill_values(None, {}) == {}
+    assert review_prefill_values(None, {"equipment_serial": "EQ-1"}) == {
+        "equipment_serial": "EQ-1"
+    }
 
 
 def test_recover_last_defined_serials_from_revision_history():
