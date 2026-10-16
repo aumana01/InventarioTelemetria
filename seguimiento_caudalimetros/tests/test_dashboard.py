@@ -100,6 +100,21 @@ def test_sin_medicion_no_reporta_calidad_roja():
     assert detail[(detail["ID equipo"] == "A") & (detail["Aspecto"] == "Rectificación")].iloc[0]["Semáforo"] == RED
 
 
+def test_puntual_has_flow_and_no_rectification_alert():
+    summary, details = build_dashboard_tables(INVENTORY, [review(
+        measurement_method="puntual",
+        point_flow_lps=42.5,
+        measurement_quality=None,
+        rectification_status="No se ha realizado",
+    )], today=TODAY)
+    row = summary[summary["ID equipo"] == "A"].iloc[0]
+    assert row["Caudal puntual (L/s)"] == 42.5
+    assert row["Modalidad de medición"] == "Puntual"
+    statuses = details[details["ID equipo"] == "A"].set_index("Aspecto")
+    assert statuses.loc["Calidad de medición", "Semáforo"] == GRAY
+    assert statuses.loc["Rectificación", "Semáforo"] == GRAY
+
+
 def test_filters_combine_exact_date_system_state_type_and_search():
     _, detail = build_dashboard_tables(INVENTORY, [review(repair_signal_pending=True)], today=TODAY)
     result = filter_dashboard(detail, selections={"Sistema": ["Guadalupe"], "Semáforo": [RED],
