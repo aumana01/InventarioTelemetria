@@ -5,7 +5,8 @@ import pandas as pd
 import pytest
 
 from src.dashboard import (
-    GRAY, GREEN, RED, build_dashboard_tables, export_csv, filter_dashboard,
+    GRAY, GREEN, RED, TELEMETRY_ASPECTS, build_dashboard_tables,
+    export_csv, filter_dashboard, filter_telemetry_pending,
     period_bounds, review_date, style_status_row,
 )
 from src.supabase_repository import SupabaseReviewRepository
@@ -113,6 +114,81 @@ def test_puntual_has_flow_and_no_rectification_alert():
     statuses = details[details["ID equipo"] == "A"].set_index("Aspecto")
     assert statuses.loc["Calidad de medición", "Semáforo"] == GRAY
     assert statuses.loc["Rectificación", "Semáforo"] == GRAY
+
+
+def test_telemetry_filter_includes_exact_five_pending_aspects():
+    assert set(TELEMETRY_ASPECTS) == {
+        "Señal", "Visualización en Perspective", "Vision Client CCO",
+        "Vision Client SCADA vr2", "Descarga módulo de reportes",
+    }
+
+    changes = {
+        "repair_signal_pending": True,
+        "repair_perspective_pending": True,
+        "repair_vision_cco_pending": True,
+        "repair_vision_scada_vr2_pending": True,
+        "repair_vision_reports_pending": True,
+        "repair_power_pending": True,
+        "repair_calibration_pending": True,
+    }
+    summary, detail = build_dashboard_tables(INVENTORY, [review(**changes)], today=TODAY)
+    selected_summary = filter_telemetry_pending(summary, detail)
+    assert selected_summary["ID equipo"].tolist() == ["A"]
+    assert selected_summary.iloc[0]["Pendientes Telemetría"] == 5
+    assert set(selected_summary.iloc[0]["Detalle pendientes Telemetría"].split("; ")) == set(TELEMETRY_ASPECTS)
+
+    selected_detail = filter_telemetry_pending(detail, detail)
+    assert len(selected_detail) == 5
+    assert set(selected_detail["Aspecto"]) == set(TELEMETRY_ASPECTS)
+    assert set(selected_detail["Semáforo"]) == {RED}
+    assert "Energía" not in set(selected_detail["Aspecto"])
+    assert "Calibración" not in set(selected_detail["Aspecto"])
+
+
+def test_telemetry_filter_excludes_other_red_flags_and_resolved_signals():
+    summary, detail = build_dashboard_tables(INVENTORY, [
+        review(
+            repair_signal_pending=False,
+            repair_power_pending=True,
+            repair_calibration_pending=True,
+            maintenance_gel_date="2026-01-01",
+        )
+    ], today=TODAY)
+    assert summary.iloc[0]["Pendientes Telemetría"] == 0
+    assert summary.iloc[0]["Semáforo"] == RED
+    assert filter_telemetry_pending(summary, detail).empty
+    assert filter_telemetry_pending(detail, detail).empty
+
+
+def test_telemetry_filter_respects_selected_aspects_and_current_vs_history():
+    latest = review(
+        id="new", reviewed_at="2026-10-05T18:00:00Z",
+        repair_signal_pending=False,
+        repair_vision_cco_pending=True,
+    )
+    old = review(
+        id="old", reviewed_at="2026-09-01T18:00:00Z",
+        repair_signal_pending=True,
+        repair_vision_cco_pending=False,
+    )
+    summary, detail = build_dashboard_tables(INVENTORY, [old, latest], today=TODAY)
+    assert filter_telemetry_pending(summary, detail, ["Señal"]).empty
+    selected = filter_telemetry_pending(summary, detail, ["Vision Client CCO"])
+    assert selected["Registro"].tolist() == ["new"]
+    assert selected.iloc[0]["Pendientes Telemetría"] == 1
+    assert selected.iloc[0]["Detalle pendientes Telemetría"] == "Vision Client CCO"
+
+    h_summary, h_detail = build_dashboard_tables(INVENTORY, [old, latest],
+                                                 history=True, today=TODAY)
+    history_signal = filter_telemetry_pending(h_summary, h_detail, ["Señal"])
+    assert history_signal["Registro"].tolist() == ["old"]
+    history_cco = filter_telemetry_pending(h_detail, h_detail, ["Vision Client CCO"])
+    assert history_cco["Registro"].tolist() == ["new"]
+    assert filter_telemetry_pending(h_summary, h_detail, []).empty
+
+    by_system = filter_dashboard(h_summary, selections={"Sistema": ["Guadalupe"]},
+                                 start=date(2026, 9, 1), end=date(2026, 9, 30))
+    assert filter_telemetry_pending(by_system, h_detail, ["Señal"])["Registro"].tolist() == ["old"]
 
 
 def test_filters_combine_exact_date_system_state_type_and_search():
