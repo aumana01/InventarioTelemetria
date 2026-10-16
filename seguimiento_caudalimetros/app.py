@@ -2242,7 +2242,8 @@ snapshot = snapshot_from_row(selected_row.to_dict())
 # El formulario nuevo cambia de identidad al cambiar de equipo.
 # Descarta widgets sin guardar para no mezclarlos con la última ficha de otro activo.
 if page == "Revisión de equipo":
-    if st.session_state.get("_new_form_equipment_key") != equipment_key:
+    if (st.session_state.pop("_reset_new_form_next_run", False)
+            or st.session_state.get("_new_form_equipment_key") != equipment_key):
         for widget_key in list(st.session_state.keys()):
             if str(widget_key).startswith("new-"):
                 del st.session_state[widget_key]
@@ -2373,10 +2374,12 @@ if page == "Revisión de equipo":
             "Seleccione una de las dos formas de documentar la medición: "
             "un valor puntual de caudal o un registro temporal mediante gráfico."
         )
+        prior_mode = infer_measurement_mode(previous)
         measurement_mode = st.radio(
             "Modalidad de medición",
             options=list(MEASUREMENT_MODES),
-            index=None,
+            index=(list(MEASUREMENT_MODES).index(prior_mode)
+                   if prior_mode in MEASUREMENT_MODES else None),
             format_func=lambda mode: MEASUREMENT_MODE_LABELS[mode],
             horizontal=True,
             key=f"new-measurement-mode-{equipment_key}",
@@ -2403,7 +2406,8 @@ if page == "Revisión de equipo":
             point_flow_lps = st.number_input(
                 "Caudal medido (L/s)",
                 min_value=0.0,
-                value=None,
+                value=(float(previous["point_flow_lps"])
+                       if previous.get("point_flow_lps") is not None else None),
                 step=0.1,
                 format="%.3f",
                 placeholder="Ingrese el caudal medido",
@@ -2411,6 +2415,7 @@ if page == "Revisión de equipo":
             )
             point_observations = st.text_area(
                 "Observaciones de la medición puntual",
+                value=str(previous.get("point_observations") or ""),
                 placeholder="Condiciones hidráulicas, instrumento utilizado u otras observaciones",
                 key=f"new-point-observations-{equipment_key}",
             )
@@ -2418,6 +2423,8 @@ if page == "Revisión de equipo":
             st.markdown("#### Ubicación (opcional)")
             register_measurement_point = st.checkbox(
                 "Registrar un punto de medición distinto o complementario al macromedidor",
+                value=(previous.get("measurement_latitude") is not None
+                       and previous.get("measurement_longitude") is not None),
                 key=f"new-point-location-{equipment_key}",
             )
             if register_measurement_point:
@@ -2431,16 +2438,21 @@ if page == "Revisión de equipo":
                 p1, p2 = st.columns(2)
                 measurement_latitude_text = p1.text_input(
                     "Latitud WGS84",
+                    value=(str(previous["measurement_latitude"])
+                           if previous.get("measurement_latitude") is not None else ""),
                     placeholder="Ej.: 9.928100",
                     key=f"new-point-lat-{equipment_key}",
                 )
                 measurement_longitude_text = p2.text_input(
                     "Longitud WGS84",
+                    value=(str(previous["measurement_longitude"])
+                           if previous.get("measurement_longitude") is not None else ""),
                     placeholder="Ej.: -84.090700",
                     key=f"new-point-lon-{equipment_key}",
                 )
                 measurement_location_notes = st.text_input(
                     "Referencia del punto de medición",
+                    value=str(previous.get("measurement_location_notes") or ""),
                     placeholder="Ej.: válvula, hidrante, cámara o punto aguas abajo",
                     key=f"new-point-reference-{equipment_key}",
                 )
@@ -2450,12 +2462,14 @@ if page == "Revisión de equipo":
             rectification_status = st.radio(
                 "¿El equipo se ha logrado rectificar con otro equipo de forma simultánea?",
                 options=list(RECTIFICATION_VALUES),
+                index=_rectification_index(previous.get("rectification_status")),
                 horizontal=True,
                 key=f"new-rectification-{equipment_key}",
             )
             if rectification_status == "Sí, con medición simultánea":
                 rectification_equipment = st.text_input(
                     "¿Con cuál equipo se realizó la rectificación?",
+                    value=str(previous.get("rectification_equipment") or ""),
                     placeholder="Ej.: ultrasónico portátil / marca-modelo / código interno",
                     key=f"new-rectification-equipment-{equipment_key}",
                 )
@@ -2463,23 +2477,31 @@ if page == "Revisión de equipo":
                 measurement_quality = g1.selectbox(
                     "Calidad de medición",
                     options=list(QUALITY_VALUES),
-                    index=1,
+                    index=_quality_index(previous.get("measurement_quality")),
                     key=f"new-quality-{equipment_key}",
                 )
                 last_maintenance_date = g2.date_input(
                     "Fecha del último mantenimiento / medición",
-                    value=None,
+                    value=_review_date_value(previous.get("last_maintenance_date")),
                     max_value=local_today(),
                     key=f"new-maintenance-date-{equipment_key}",
                 )
 
             st.markdown("#### Gráfico comparativo")
+            previous_graph_source = str(previous.get("graph_source") or "none")
             graph_option = st.radio(
                 "Origen del gráfico",
                 ["Cargar archivo HTML", "Vínculo MS List / SharePoint"],
+                index=(1 if previous_graph_source in ("sharepoint", "sharepoint_link")
+                       else 0),
                 horizontal=True,
                 key=f"new-graph-origin-{equipment_key}",
             )
+            if previous_graph_source == "manual":
+                st.caption(
+                    "El último gráfico HTML está guardado en la ficha anterior. "
+                    "Para asociar un gráfico a esta nueva revisión, cargue el archivo de nuevo."
+                )
             if graph_option == "Cargar archivo HTML":
                 uploaded_html = st.file_uploader(
                     "Archivo HTML de comparación",
@@ -2502,6 +2524,7 @@ if page == "Revisión de equipo":
             else:
                 sharepoint_url = st.text_input(
                     "Hipervínculo del archivo HTML en Microsoft List / SharePoint",
+                    value=str(previous.get("graph_original_url") or ""),
                     placeholder=(
                         "https://...sharepoint.com/.../Attachments/"
                         "2324/grafico.html?web=1"
@@ -2529,7 +2552,12 @@ if page == "Revisión de equipo":
                     "automáticamente el gráfico desde SharePoint hacia Supabase."
                 )
 
-        notes = st.text_area("Observaciones adicionales", height=90)
+        notes = st.text_area(
+            "Observaciones adicionales",
+            value=str(previous.get("notes") or ""),
+            height=90,
+            key=f"{new_form_prefix}-notes",
+        )
 
     st.markdown("---")
     st.markdown("### FIRMA Y CIERRE DE LA REVISIÓN")
@@ -2538,11 +2566,13 @@ if page == "Revisión de equipo":
         "Responsable de la revisión (firma)",
         options=("", *AUTHORIZED_REVIEWERS),
         format_func=lambda value: value or "Seleccione una persona autorizada",
+        key=f"{new_form_prefix}-reviewed-by",
     )
     signed_review_date = sig2.date_input(
         "Fecha de la revisión del equipo",
         value=local_today(),
         max_value=local_today(),
+        key=f"{new_form_prefix}-review-date",
     )
     st.caption(
         "La firma identifica a la persona que realizó la revisión general, "
