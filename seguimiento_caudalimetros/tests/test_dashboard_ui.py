@@ -70,3 +70,56 @@ render_dashboard(meters, [review])
     at.selectbox(key="dashboard-scope").set_value("Historial · todas las revisiones").run()
     assert not at.exception
     assert at.dataframe[0].value["ID equipo"].unique().tolist() == ["A"]
+
+
+def test_telemetry_only_filter_works_in_summary_and_detail():
+    at = AppTest.from_string('''
+from src.dashboard_ui import render_dashboard
+from src.dashboard import local_today
+stamp = local_today().isoformat()
+inventory = [
+    {"ID equipo": "A", "Sistema": "Guadalupe", "Equipo": "Salida"},
+    {"ID equipo": "B", "Sistema": "La Valencia", "Equipo": "Entrada"},
+]
+common = {
+    "equipment_type": "Electromagnético",
+    "rectification_status": "Sí, con medición simultánea",
+    "rectification_equipment": "Patrón",
+    "measurement_quality": "Buena",
+    "maintenance_gel_date": stamp,
+    "maintenance_transducers_alignment_date": stamp,
+    "maintenance_internal_download_date": stamp,
+    "maintenance_simultaneous_installation_date": stamp,
+    "maintenance_scada_check_date": stamp,
+    "maintenance_scada_working": True,
+}
+reviews = [
+    {**common, "id": "1", "equipment_key": "A",
+     "reviewed_at": stamp+"T12:00:00Z", "repair_signal_pending": True,
+     "repair_vision_reports_pending": True, "repair_power_pending": True},
+    {**common, "id": "2", "equipment_key": "B",
+     "reviewed_at": stamp+"T12:00:00Z", "repair_power_pending": True},
+]
+render_dashboard(inventory, reviews)
+''', default_timeout=30).run()
+    assert not at.exception
+    assert len(at.dataframe[0].value) == 2
+
+    at.checkbox(key="dashboard-telemetry-only").check().run()
+    assert not at.exception
+    summary = at.dataframe[0].value
+    assert summary["ID equipo"].tolist() == ["A"]
+    assert summary["Pendientes Telemetría"].tolist() == [2]
+    assert "Energía" not in summary.iloc[0]["Detalle pendientes Telemetría"]
+
+    at.selectbox(key="dashboard-table").set_value("Detalle por aspecto").run()
+    assert not at.exception
+    assert set(at.dataframe[0].value["Aspecto"]) == {"Señal", "Descarga módulo de reportes"}
+
+    at.multiselect(key="dashboard-telemetry-aspects").set_value(["Señal"]).run()
+    assert not at.exception
+    assert at.dataframe[0].value["Aspecto"].tolist() == ["Señal"]
+
+    at.checkbox(key="dashboard-telemetry-only").uncheck().run()
+    assert not at.exception
+    assert len(at.dataframe[0].value) > 2
